@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  chathub-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ChatHub__PodId=local-dev
+      - Mongo__ConnectionString=mongodb://mongo:27017
+      - Mongo__DatabaseName=chathub
+      - Nats__Url=nats://nats:4222
+      - Redis__ConnectionString=redis:6379
+      - Storage__Endpoint=http://minio:9000
+      - Storage__AccessKey=minioadmin
+      - Storage__SecretKey=minioadmin
+      - Storage__BucketName=chathub
+      - Storage__UseSsl=false
+      - Jwt__SigningKey=dev-signing-key-min-32-characters-long
+      - Jwt__Issuer=chathub
+      - Jwt__Audience=chathub-clients
+    depends_on:
+      - mongo
+      - nats
+      - redis
+      - minio
+    volumes:
+      - .:/src
+    command: dotnet watch run --project ChatHub.Api --urls http://+:8080
+
+  nats:
+    image: nats:latest
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: "-m 8222"
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=adminpassword
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  mongo_data:
+  minio_data:

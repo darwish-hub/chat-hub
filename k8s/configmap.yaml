@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chathub-config
+data:
+  ChatHub__MaxMessageSizeBytes: "65536"
+  ChatHub__AllowedOrigins: "*"
+  ChatHub__PingIntervalSeconds: "15"
+  ChatHub__PongTimeoutSeconds: "10"
+  ChatHub__IdleTimeoutMinutes: "30"
+  ChatHub__RateLimitTextPerMinute: "100"
+  ChatHub__RateLimitVoicePerMinute: "10"
+  Mongo__ConnectionString: "mongodb://mongo:27017"
+  Mongo__DatabaseName: "chathub"
+  Nats__Url: "nats://nats:4222"
+  Nats__QueueGroup: "chathub-hub"
+  Redis__ConnectionString: "redis:6379"
+  Storage__Endpoint: "http://minio:9000"
+  Storage__BucketName: "chathub"
+  Storage__UseSsl: "false"
+  Storage__Region: "us-east-1"
+  Jwt__Issuer: "chathub"
+  Jwt__Audience: "chathub-clients"
