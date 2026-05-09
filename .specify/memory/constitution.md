@@ -1,50 +1,86 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+Version change: 0.0.0 → 1.0.0 (initial ratification)
+Modified principles: N/A (initial creation)
+Added sections: All sections (initial creation)
+Removed sections: N/A
+Templates requiring updates:
+  - ✅ plan-template.md: No changes needed - aligns with Core Principles
+  - ✅ spec-template.md: No changes needed - follows Test-First principle
+  - ✅ tasks-template.md: No changes needed - supports Implementation Quality
+Follow-up TODOs: None - all placeholders filled
+-->
+
+# ChatHub Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. WebSocket-First Real-time Communication
+All client connections use native WebSocket protocol with a custom JSON wire format. No SignalR or abstraction layers between server and raw WebSocket frames.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+**Rationale**: Direct WebSocket control enables minimal latency, cross-platform compatibility (web, iOS, Android without SDK dependencies), and explicit protocol design. This is non-negotiable for a real-time chat service.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. MongoDB as Source of Truth
+MongoDB owns all durability. Every message is persisted to MongoDB before any NATS publish. NATS core is at-most-once delivery only — no message replay, no JetStream. Clients fetch missed history from MongoDB on reconnect.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: Separating durability (MongoDB) from delivery (NATS) simplifies the architecture and ensures consistent state across pod restarts. NATS is purely for real-time fan-out, not persistence.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. NATS Core for Cross-Pod Fan-out
+Use NATS core pub/sub with queue groups for load-balanced delivery across pods. No JetStream, no streams, no consumers. Fire-and-forget semantics acceptable — durability is MongoDB's responsibility.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**Rationale**: NATS core provides exactly-once delivery within queue groups with minimal overhead. The at-most-once semantics are acceptable because MongoDB persists all messages; NATS only needs to deliver to currently connected pods.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Layered Architecture with Clear Boundaries
+Maintain strict separation between layers:
+- **ChatHub.Core**: Models, DTOs, interfaces, settings — no external dependencies
+- **ChatHub.Infrastructure**: Implementations (WebSockets, NATS, MongoDB, Redis, S3)
+- **ChatHub.Api**: Middleware, controllers, DI wiring — thin layer only
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Clean architecture enables testability, allows infrastructure swapping, and prevents business logic leakage into transport concerns.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Background Services for I/O Offloading
+All blocking or slow I/O (MongoDB writes, NATS publishes, S3 uploads) happen in dedicated BackgroundService implementations with Channel-based queuing. Never block the hot receive path.
+
+**Rationale**: WebSocket receive loops must remain responsive. Offloading to channels with background drainers prevents backpressure and maintains throughput under load.
+
+## Technology Stack Requirements
+
+### Required Infrastructure
+- **.NET 8+**: ASP.NET Core with native WebSocket middleware
+- **MongoDB 7+**: Official .NET driver, no ODM abstraction
+- **NATS Server**: Core pub/sub only, no JetStream, 3-node cluster
+- **Redis 7+**: Presence, session state, rate limiting, voice chunk assembly
+- **S3-Compatible Storage**: MinIO for local, AWS S3 for production
+
+### Development Standards
+- No Entity Framework Core — use MongoDB driver directly
+- No SignalR — native WebSocket only
+- System.Text.Json for all serialization (camelCase)
+- Async/await throughout — no blocking calls
+- Structured logging with correlation IDs
+
+## Operational Requirements
+
+### Deployment
+- Kubernetes with HPA (3-20 replicas based on CPU + custom metric)
+- PodDisruptionBudget with minAvailable: 2
+- Graceful shutdown: 5s preStop sleep for WebSocket drain
+- Ingress with extended timeouts (3600s) for WebSocket support
+
+### Monitoring
+- Health checks for NATS, MongoDB, Redis
+- Metrics: active connections, message throughput, latency percentiles
+- Distributed tracing across pod boundaries
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices. All code changes must:
+1. Follow the layered architecture — no infrastructure code in Core or Api
+2. Persist to MongoDB before NATS publish
+3. Use queue groups for NATS subscription (except broadcast topics)
+4. Include unit tests for handlers and integration tests for WebSocket/NATS/MongoDB
+5. Not introduce blocking I/O in receive loops
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+Amendments require documentation update, explicit approval, and migration plan for existing code.
+
+**Version**: 1.0.0 | **Ratified**: 2026-05-09 | **Last Amended**: 2026-05-09
