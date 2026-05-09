@@ -1,38 +1,31 @@
+using ChatHub.Infrastructure.Persistence;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using MongoDB.Driver;
 
 namespace ChatHub.Api.HealthChecks;
 
-/// <summary>
-/// Health check for MongoDB connection
-/// </summary>
 public class MongoHealthCheck : IHealthCheck
 {
-    private readonly IMongoClient _client;
-    private readonly ILogger<MongoHealthCheck> _logger;
-    
-    public MongoHealthCheck(
-        IMongoClient client,
-        ILogger<MongoHealthCheck> logger)
+    private readonly MongoInitializer _mongoInitializer;
+
+    public MongoHealthCheck(MongoInitializer mongoInitializer)
     {
-        _client = client;
-        _logger = logger;
+        _mongoInitializer = mongoInitializer;
     }
-    
-    public async Task<HealthCheckResult> CheckHealthAsync(
-        HealthCheckContext context,
-        CancellationToken ct = default)
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         try
         {
-            // Ping MongoDB
-            await _client.ListDatabaseNamesAsync(ct);
-            return HealthCheckResult.Healthy("MongoDB connected");
+            // Try to ping MongoDB
+            await _mongoInitializer.Database.RunCommandAsync<MongoDB.Bson.BsonDocument>(
+                new MongoDB.Driver.BsonDocumentCommand<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1)),
+                cancellationToken: cancellationToken);
+            
+            return HealthCheckResult.Healthy("MongoDB is healthy");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "MongoDB health check failed");
-            return HealthCheckResult.Unhealthy("MongoDB check failed", ex);
+            return HealthCheckResult.Unhealthy("MongoDB is unhealthy", ex);
         }
     }
 }

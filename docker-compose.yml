@@ -1,71 +1,55 @@
 version: '3.8'
 
 services:
-  chathub-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
-      - ChatHub__PodId=local-dev
-      - Mongo__ConnectionString=mongodb://mongo:27017
-      - Mongo__DatabaseName=chathub
-      - Nats__Url=nats://nats:4222
-      - Redis__ConnectionString=redis:6379
-      - Storage__Endpoint=http://minio:9000
-      - Storage__AccessKey=minioadmin
-      - Storage__SecretKey=minioadmin
-      - Storage__BucketName=chathub
-      - Storage__UseSsl=false
-      - Jwt__SigningKey=dev-signing-key-min-32-characters-long
-      - Jwt__Issuer=chathub
-      - Jwt__Audience=chathub-clients
-    depends_on:
-      - mongo
-      - nats
-      - redis
-      - minio
-    volumes:
-      - .:/src
-    command: dotnet watch run --project ChatHub.Api --urls http://+:8080
-
-  nats:
-    image: nats:latest
-    ports:
-      - "4222:4222"
-      - "8222:8222"
-    command: "-m 8222"
-
   mongo:
     image: mongo:7
+    container_name: chathub-mongo
     ports:
       - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=adminpassword
+      MONGO_INITDB_DATABASE: chathub
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - chathub-network
 
   redis:
     image: redis:7-alpine
+    container_name: chathub-redis
     ports:
       - "6379:6379"
+    networks:
+      - chathub-network
+
+  nats:
+    image: nats:latest
+    container_name: chathub-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: "--http_port 8222 --cluster_name chathub"
+    networks:
+      - chathub-network
 
   minio:
     image: minio/minio:latest
+    container_name: chathub-minio
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
-    volumes:
-      - minio_data:/data
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - chathub-network
 
 volumes:
-  mongo_data:
-  minio_data:
+  mongo-data:
+  minio-data:
+
+networks:
+  chathub-network:
+    driver: bridge

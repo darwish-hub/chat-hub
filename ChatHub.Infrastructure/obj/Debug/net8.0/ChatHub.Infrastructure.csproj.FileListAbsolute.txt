@@ -1,0 +1,16 @@
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.csproj.AssemblyReference.cache
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.AssemblyInfoInputs.cache
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.AssemblyInfo.cs
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.csproj.CoreCompileInputs.cache
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.sourcelink.json
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\bin\Debug\net8.0\ChatHub.Infrastructure.deps.json
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\bin\Debug\net8.0\ChatHub.Infrastructure.dll
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\bin\Debug\net8.0\ChatHub.Infrastructure.pdb
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\bin\Debug\net8.0\ChatHub.Core.dll
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\bin\Debug\net8.0\ChatHub.Core.pdb
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub..4F0C6F19.Up2Date
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.dll
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\refint\ChatHub.Infrastructure.dll
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ChatHub.Infrastructure.pdb
+D:\Study\chat-app\chat-hub\ChatHub.Infrastructure\obj\Debug\net8.0\ref\ChatHub.Infrastructure.dll

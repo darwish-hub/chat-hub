@@ -2,10 +2,16 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: chathub-api
+  namespace: chathub
   labels:
     app: chathub-api
 spec:
   replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: chathub-api
@@ -15,43 +21,86 @@ spec:
         app: chathub-api
     spec:
       containers:
-      - name: chathub-api
-        image: chathub-api:latest
+      - name: api
+        image: chathub/api:latest
+        imagePullPolicy: Always
         ports:
-        - containerPort: 8080
+        - name: http
+          containerPort: 8080
+        - name: ws
+          containerPort: 8080
         env:
         - name: ASPNETCORE_ENVIRONMENT
           value: "Production"
-        - name: ChatHub__PodId
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        - name: MongoDb__ConnectionString
           valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        envFrom:
-        - configMapRef:
-            name: chathub-config
-        - secretRef:
-            name: chathub-secrets
+            secretKeyRef:
+              name: chathub-secrets
+              key: mongodb-connection-string
+        - name: Redis__ConnectionString
+          valueFrom:
+            secretKeyRef:
+              name: chathub-secrets
+              key: redis-connection-string
+        - name: Nats__Url
+          valueFrom:
+            configMapKeyRef:
+              name: chathub-config
+              key: nats-url
+        - name: S3__BucketName
+          valueFrom:
+            configMapKeyRef:
+              name: chathub-config
+              key: s3-bucket-name
+        - name: S3__Region
+          valueFrom:
+            configMapKeyRef:
+              name: chathub-config
+              key: s3-region
+        - name: Jwt__Secret
+          valueFrom:
+            secretKeyRef:
+              name: chathub-secrets
+              key: jwt-secret
         resources:
           requests:
             memory: "256Mi"
             cpu: "250m"
           limits:
-            memory: "1Gi"
-            cpu: "1"
+            memory: "512Mi"
+            cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /healthz
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health/ready
+            path: /readyz
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
         lifecycle:
           preStop:
             exec:
-              command: ["/bin/sh", "-c", "sleep 5"]
+              command: ["/bin/sh", "-c", "sleep 10"]
       terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - chathub-api
+              topologyKey: kubernetes.io/hostname

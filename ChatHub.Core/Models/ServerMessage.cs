@@ -2,105 +2,121 @@ using System.Text.Json.Serialization;
 
 namespace ChatHub.Core.Models;
 
-/// <summary>
-/// Base class for all server-to-client messages
-/// </summary>
-public abstract record ServerMessage
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(MessageReceived), typeDiscriminator: "message_received")]
+[JsonDerivedType(typeof(VoiceChunkReceived), typeDiscriminator: "voice_chunk")]
+[JsonDerivedType(typeof(UserJoined), typeDiscriminator: "user_joined")]
+[JsonDerivedType(typeof(UserLeft), typeDiscriminator: "user_left")]
+[JsonDerivedType(typeof(TypingIndicator), typeDiscriminator: "typing")]
+[JsonDerivedType(typeof(DeliveredReceipt), typeDiscriminator: "delivered")]
+[JsonDerivedType(typeof(ErrorMessage), typeDiscriminator: "error")]
+[JsonDerivedType(typeof(PingMessage), typeDiscriminator: "ping")]
+public abstract class ServerMessage
 {
     [JsonPropertyName("type")]
     public abstract string Type { get; }
 }
 
-public record MessageReceived : ServerMessage
+public class MessageReceived : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "message_received";
-
+    
     [JsonPropertyName("envelope")]
-    public MessageEnvelope Envelope { get; init; } = null!;
+    public MessageEnvelope Envelope { get; set; } = null!;
 }
 
-public record VoiceChunkRelay : ServerMessage
+// MessageEnvelope, VoiceInfo, FileInfo are defined in separate files
+
+public class VoiceChunkReceived : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "voice_chunk";
-
+    
     [JsonPropertyName("id")]
-    public string Id { get; init; } = string.Empty;
-
+    public string Id { get; set; } = null!;
+    
     [JsonPropertyName("conversationId")]
-    public string ConversationId { get; init; } = string.Empty;
-
+    public string ConversationId { get; set; } = null!;
+    
     [JsonPropertyName("sequenceNumber")]
-    public int SequenceNumber { get; init; }
-
+    public int SequenceNumber { get; set; }
+    
     [JsonPropertyName("isFinal")]
-    public bool IsFinal { get; init; }
-
+    public bool IsFinal { get; set; }
+    
     [JsonPropertyName("fromUserId")]
-    public string FromUserId { get; init; } = string.Empty;
+    public string FromUserId { get; set; } = null!;
 }
 
-public record UserJoined : ServerMessage
+public class UserJoined : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "user_joined";
-
+    
     [JsonPropertyName("userId")]
-    public string UserId { get; init; } = string.Empty;
-
+    public string UserId { get; set; } = null!;
+    
     [JsonPropertyName("serviceId")]
-    public string ServiceId { get; init; } = string.Empty;
-
+    public string ServiceId { get; set; } = null!;
+    
     [JsonPropertyName("displayName")]
-    public string DisplayName { get; init; } = string.Empty;
+    public string DisplayName { get; set; } = null!;
 }
 
-public record UserLeft : ServerMessage
+public class UserLeft : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "user_left";
-
+    
     [JsonPropertyName("userId")]
-    public string UserId { get; init; } = string.Empty;
-
+    public string UserId { get; set; } = null!;
+    
     [JsonPropertyName("serviceId")]
-    public string ServiceId { get; init; } = string.Empty;
+    public string ServiceId { get; set; } = null!;
 }
 
-public record TypingIndicator : ServerMessage
+public class TypingIndicator : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "typing";
-
+    
     [JsonPropertyName("userId")]
-    public string UserId { get; init; } = string.Empty;
-
+    public string UserId { get; set; } = null!;
+    
     [JsonPropertyName("conversationId")]
-    public string ConversationId { get; init; } = string.Empty;
-
+    public string ConversationId { get; set; } = null!;
+    
     [JsonPropertyName("isTyping")]
-    public bool IsTyping { get; init; }
+    public bool IsTyping { get; set; }
 }
 
-public record DeliveredReceipt : ServerMessage
+public class DeliveredReceipt : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "delivered";
-
+    
     [JsonPropertyName("messageId")]
-    public string MessageId { get; init; } = string.Empty;
+    public string MessageId { get; set; } = null!;
 }
 
-public record ErrorMessage : ServerMessage
+public class ErrorMessage : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "error";
-
+    
     [JsonPropertyName("code")]
-    public string Code { get; init; } = string.Empty;
-
+    public string Code { get; set; } = null!;
+    
     [JsonPropertyName("message")]
-    public string Message { get; init; } = string.Empty;
-
+    public string Message { get; set; } = null!;
+    
     [JsonPropertyName("correlationId")]
-    public string? CorrelationId { get; init; }
+    public string? CorrelationId { get; set; }
 }
 
-public record PingMessage : ServerMessage
+public class PingMessage : ServerMessage
 {
+    [JsonPropertyName("type")]
     public override string Type => "ping";
 }

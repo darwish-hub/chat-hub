@@ -1,7 +1,8 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: chathub-api
+  name: chathub-api-pdb
+  namespace: chathub
 spec:
   minAvailable: 2
   selector:

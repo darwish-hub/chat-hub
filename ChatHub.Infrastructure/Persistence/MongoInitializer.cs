@@ -1,78 +1,74 @@
-using MongoDB.Driver;
 using ChatHub.Core.Documents;
 using ChatHub.Core.Settings;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 
 namespace ChatHub.Infrastructure.Persistence;
 
-/// <summary>
-/// Initializes MongoDB collections and indexes on startup
-/// </summary>
 public class MongoInitializer : IHostedService
 {
     private readonly IMongoDatabase _database;
     private readonly ILogger<MongoInitializer> _logger;
-    
-    public MongoInitializer(
-        IMongoClient client,
-        IOptions<MongoSettings> settings,
-        ILogger<MongoInitializer> logger)
+
+    public MongoInitializer(MongoSettings settings, ILogger<MongoInitializer> logger)
     {
-        _database = client.GetDatabase(settings.Value.DatabaseName);
+        var client = new MongoClient(settings.ConnectionString);
+        _database = client.GetDatabase(settings.DatabaseName);
         _logger = logger;
     }
-    
-    public async Task StartAsync(CancellationToken ct)
+
+    public IMongoDatabase Database => _database;
+
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Initializing MongoDB indexes...");
-        
-        // Messages collection indexes
+        _logger.LogInformation("Initializing MongoDB collections and indexes...");
+
+        // Messages collection
         var messagesCollection = _database.GetCollection<MessageDocument>("messages");
         
-        var messageIndexKeys = Builders<MessageDocument>.IndexKeys
-            .Ascending(m => m.ConversationId)
-            .Descending(m => m.CreatedAt);
-        await messagesCollection.Indexes.CreateOneAsync(
-            new CreateIndexModel<MessageDocument>(messageIndexKeys),
-            cancellationToken: ct);
-        
-        var messageServiceIndex = Builders<MessageDocument>.IndexKeys
-            .Ascending(m => m.ServiceId)
-            .Descending(m => m.CreatedAt);
-        await messagesCollection.Indexes.CreateOneAsync(
-            new CreateIndexModel<MessageDocument>(messageServiceIndex),
-            cancellationToken: ct);
-        
-        // Conversations collection indexes
+        var messageIndexes = Builders<MessageDocument>.IndexKeys;
+        await messagesCollection.Indexes.CreateManyAsync(new[]
+        {
+            new CreateIndexModel<MessageDocument>(
+                messageIndexes.Ascending(m => m.ConversationId).Descending(m => m.CreatedAt)),
+            new CreateIndexModel<MessageDocument>(
+                messageIndexes.Ascending(m => m.ServiceId).Descending(m => m.CreatedAt)),
+            new CreateIndexModel<MessageDocument>(
+                messageIndexes.Ascending(m => m.SenderId).Descending(m => m.CreatedAt))
+        }, cancellationToken);
+
+        // Conversations collection
         var conversationsCollection = _database.GetCollection<ConversationDocument>("conversations");
         
-        var conversationServiceIndex = Builders<ConversationDocument>.IndexKeys
-            .Ascending(c => c.ServiceId);
-        await conversationsCollection.Indexes.CreateOneAsync(
-            new CreateIndexModel<ConversationDocument>(conversationServiceIndex),
-            cancellationToken: ct);
-        
-        var conversationParticipantIndex = Builders<ConversationDocument>.IndexKeys
-            .Ascending(c => c.ParticipantIds);
-        await conversationsCollection.Indexes.CreateOneAsync(
-            new CreateIndexModel<ConversationDocument>(conversationParticipantIndex),
-            cancellationToken: ct);
-        
-        // Connections collection indexes with TTL
+        var conversationIndexes = Builders<ConversationDocument>.IndexKeys;
+        await conversationsCollection.Indexes.CreateManyAsync(new[]
+        {
+            new CreateIndexModel<ConversationDocument>(
+                conversationIndexes.Ascending(c => c.ServiceId)),
+            new CreateIndexModel<ConversationDocument>(
+                conversationIndexes.Ascending(c => c.ParticipantIds)),
+            new CreateIndexModel<ConversationDocument>(
+                conversationIndexes.Ascending(c => c.ServiceId).Descending(c => c.LastMessageAt))
+        }, cancellationToken);
+
+        // Connections collection (ephemeral)
         var connectionsCollection = _database.GetCollection<ConnectionDocument>("connections");
         
-        var connectionTTLIndex = Builders<ConnectionDocument>.IndexKeys
-            .Ascending(c => c.DisconnectedAt);
-        var connectionTTLOptions = new CreateIndexOptions
+        var connectionIndexes = Builders<ConnectionDocument>.IndexKeys;
+        await connectionsCollection.Indexes.CreateManyAsync(new[]
         {
-            ExpireAfter = TimeSpan.FromHours(24)
-        };
-        await connectionsCollection.Indexes.CreateOneAsync(
-            new CreateIndexModel<ConnectionDocument>(connectionTTLIndex, connectionTTLOptions),
-            cancellationToken: ct);
-        
-        _logger.LogInformation("MongoDB indexes created successfully");
+            new CreateIndexModel<ConnectionDocument>(
+                connectionIndexes.Ascending(c => c.UserId).Descending(c => c.ConnectedAt)),
+            new CreateIndexModel<ConnectionDocument>(
+                connectionIndexes.Ascending(c => c.ConnectionId), new CreateIndexOptions { Unique = true }),
+            new CreateIndexModel<ConnectionDocument>(
+                connectionIndexes.Ascending(c => c.DisconnectedAt),
+                new CreateIndexOptions { ExpireAfter = TimeSpan.FromHours(24) }) // TTL index
+        }, cancellationToken);
+
+        _logger.LogInformation("MongoDB initialization complete");
     }
-    
-    public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

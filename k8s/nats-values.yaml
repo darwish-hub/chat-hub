@@ -1,13 +1,47 @@
-cluster:
-  enabled: true
-  replicas: 3
+# NATS Helm Chart Values
+# Install with: helm install nats nats/nats -f k8s/nats-values.yaml
+
 nats:
+  image: nats:2.10-alpine
+  
+  # JetStream configuration
   jetstream:
-    enabled: false
+    enabled: true
+    
+    memStorage:
+      enabled: true
+      size: "1Gi"
+      
+    fileStorage:
+      enabled: true
+      size: "10Gi"
+      storageClassName: standard
+      
+  # Clustering for HA
+  cluster:
+    enabled: true
+    replicas: 3
+    
+  # Resource limits
   resources:
     requests:
       cpu: "100m"
-      memory: "128Mi"
+      memory: "256Mi"
     limits:
       cpu: "500m"
       memory: "512Mi"
+
+# Monitoring
+prometheusExporter:
+  enabled: true
+  port: 7777
+
+# Leaf nodes for edge connectivity (optional)
+leafnodes:
+  enabled: false
+  
+# WebSocket gateway
+websocket:
+  enabled: true
+  port: 8080
+  noTLS: true

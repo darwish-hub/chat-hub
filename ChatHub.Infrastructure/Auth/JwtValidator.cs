@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using ChatHub.Core.Interfaces;
 using ChatHub.Core.Settings;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 

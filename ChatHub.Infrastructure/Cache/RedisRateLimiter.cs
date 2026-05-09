@@ -1,51 +1,57 @@
-using StackExchange.Redis;
 using ChatHub.Core.Interfaces;
 using ChatHub.Core.Settings;
-using Microsoft.Extensions.Options;
+using StackExchange.Redis;
 
 namespace ChatHub.Infrastructure.Cache;
 
-/// <summary>
-/// Redis sliding window rate limiter
-/// </summary>
 public class RedisRateLimiter : IRateLimiter
 {
-    private readonly IDatabase _database;
-    private readonly ILogger<RedisRateLimiter> _logger;
-    
-    public RedisRateLimiter(
-        IConnectionMultiplexer redis,
-        ILogger<RedisRateLimiter> logger)
+    private readonly IDatabase _redis;
+    private readonly int _textLimitPerMinute;
+    private readonly int _voiceLimitPerMinute;
+
+    public RedisRateLimiter(RedisSettings settings, ChatHub.Core.Settings.ChatHubSettings chatHubSettings)
     {
-        _database = redis.GetDatabase();
-        _logger = logger;
+        var connection = ConnectionMultiplexer.Connect(settings.ConnectionString);
+        _redis = connection.GetDatabase();
+        _textLimitPerMinute = chatHubSettings.RateLimitTextPerMinute;
+        _voiceLimitPerMinute = chatHubSettings.RateLimitVoicePerMinute;
     }
-    
-    public async Task<bool> IsAllowedAsync(string key, int limit, TimeSpan window, CancellationToken ct = default)
+
+    public async Task<bool> CanSendTextAsync(string connectionId, CancellationToken ct = default)
     {
-        var redisKey = $"ratelimit:{key}";
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var windowStart = now - (long)window.TotalSeconds;
-        
-        // Use Redis sorted set for sliding window
-        // Remove old entries outside the window
-        await _database.SortedSetRemoveRangeByScoreAsync(redisKey, 0, windowStart);
-        
-        // Get current count
-        var currentCount = await _database.SortedSetLengthAsync(redisKey);
-        
-        if (currentCount >= limit)
-        {
-            _logger.LogWarning("Rate limit exceeded for key {Key}", key);
-            return false;
-        }
-        
-        // Add current request
-        await _database.SortedSetAddAsync(redisKey, Guid.NewGuid().ToString(), now);
-        
-        // Set expiry on the key
-        await _database.KeyExpireAsync(redisKey, window);
-        
-        return true;
+        return await CanPerformActionAsync($"ratelimit:text:{connectionId}", _textLimitPerMinute);
+    }
+
+    public async Task<bool> CanSendVoiceAsync(string connectionId, CancellationToken ct = default)
+    {
+        return await CanPerformActionAsync($"ratelimit:voice:{connectionId}", _voiceLimitPerMinute);
+    }
+
+    public async Task RecordTextAsync(string connectionId, CancellationToken ct = default)
+    {
+        await RecordActionAsync($"ratelimit:text:{connectionId}");
+    }
+
+    public async Task RecordVoiceAsync(string connectionId, CancellationToken ct = default)
+    {
+        await RecordActionAsync($"ratelimit:voice:{connectionId}");
+    }
+
+    private async Task<bool> CanPerformActionAsync(string key, int limit)
+    {
+        var current = await _redis.StringGetAsync(key);
+        if (!current.HasValue)
+            return true;
+
+        return int.TryParse(current, out var count) && count < limit;
+    }
+
+    private async Task RecordActionAsync(string key)
+    {
+        var txn = _redis.CreateTransaction();
+        txn.StringIncrementAsync(key);
+        txn.KeyExpireAsync(key, TimeSpan.FromMinutes(1));
+        await txn.ExecuteAsync();
     }
 }

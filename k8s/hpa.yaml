@@ -1,7 +1,8 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: chathub-api
+  name: chathub-api-hpa
+  namespace: chathub
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -16,15 +17,22 @@ spec:
       target:
         type: Utilization
         averageUtilization: 70
-  - type: Pods
-    pods:
-      metric:
-        name: active_websocket_connections
+  - type: Resource
+    resource:
+      name: memory
       target:
-        type: AverageValue
-        averageValue: "8000"
+        type: Utilization
+        averageUtilization: 80
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
     scaleDown:
       stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60

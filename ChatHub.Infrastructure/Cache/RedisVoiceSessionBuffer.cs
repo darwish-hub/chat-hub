@@ -1,5 +1,6 @@
 using StackExchange.Redis;
 using ChatHub.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace ChatHub.Infrastructure.Cache;
 

@@ -1,107 +1,62 @@
-using NATS.Client;
 using ChatHub.Core.Interfaces;
 using ChatHub.Core.Settings;
-using Microsoft.Extensions.Options;
+using NATS.Client;
+using System.Text;
 
 namespace ChatHub.Infrastructure.Nats;
 
-/// <summary>
-/// NATS backplane implementation for cross-pod messaging
-/// </summary>
-public class NatsBackplane : INatsBackplane, IAsyncDisposable
+public class NatsBackplane : INatsBackplane, IDisposable
 {
     private readonly IConnection _connection;
-    private readonly ILogger<NatsBackplane> _logger;
-    private readonly List<IAsyncSubscription> _subscriptions = new();
-    
-    public NatsBackplane(
-        IOptions<NatsSettings> settings,
-        ILogger<NatsBackplane> logger)
+    private readonly string _podId;
+
+    public NatsBackplane(NatsSettings settings, string podId)
     {
-        _logger = logger;
-        
-        var opts = ConnectionFactory.GetDefaultOptions();
-        opts.Url = settings.Value.Url;
-        opts.MaxReconnect = Options.ReconnectForever;
-        opts.ReconnectWait = 1000;
-        
-        var factory = new ConnectionFactory();
-        _connection = factory.CreateConnection(opts);
-        
-        _logger.LogInformation("Connected to NATS at {Url}", settings.Value.Url);
+        _podId = podId;
+        var options = ConnectionFactory.GetDefaultOptions();
+        options.Url = settings.Url;
+        _connection = new ConnectionFactory().CreateConnection(options);
     }
-    
+
     public Task PublishAsync(string subject, ReadOnlyMemory<byte> payload, CancellationToken ct = default)
     {
-        try
-        {
-            _connection.Publish(subject, payload.ToArray());
-            return Task.CompletedTask;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to publish to NATS subject {Subject}", subject);
-            throw;
-        }
-    }
-    
-    public Task SubscribeAsync(
-        string subject,
-        string? queueGroup,
-        Func<string, ReadOnlyMemory<byte>, Task> handler,
-        CancellationToken ct)
-    {
-        IAsyncSubscription subscription;
+        var headers = new MsgHeader();
+        headers.Add("source-pod", _podId);
         
-        if (!string.IsNullOrEmpty(queueGroup))
-        {
-            subscription = _connection.SubscribeAsync(subject, queueGroup, (sender, args) =>
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await handler(args.Message.Subject, args.Message.Data).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error handling NATS message on subject {Subject}", args.Message.Subject);
-                    }
-                }, ct);
-            });
-        }
-        else
-        {
-            subscription = _connection.SubscribeAsync(subject, (sender, args) =>
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await handler(args.Message.Subject, args.Message.Data).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error handling NATS message on subject {Subject}", args.Message.Subject);
-                    }
-                }, ct);
-            });
-        }
-        
-        _subscriptions.Add(subscription);
-        _logger.LogInformation("Subscribed to NATS subject {Subject} with queue group {QueueGroup}", 
-            subject, queueGroup ?? "(none)");
+        var msg = new Msg(subject, null, headers, payload.ToArray());
+        _connection.Publish(msg);
         
         return Task.CompletedTask;
     }
-    
-    public ValueTask DisposeAsync()
+
+    public Task SubscribeAsync(string subject, string? queueGroup, Func<string, ReadOnlyMemory<byte>, Task> handler, CancellationToken ct = default)
     {
-        foreach (var sub in _subscriptions)
+        EventHandler<MsgHandlerEventArgs> msgHandler = async (sender, args) =>
         {
-            sub.Unsubscribe();
+            // Skip messages from this pod (already handled locally)
+            if (args.Message.Header != null &&
+                args.Message.Header["source-pod"] == _podId)
+            {
+                return;
+            }
+
+            await handler(args.Message.Subject, args.Message.Data);
+        };
+
+        if (!string.IsNullOrEmpty(queueGroup))
+        {
+            _connection.SubscribeAsync(subject, queueGroup, msgHandler);
         }
+        else
+        {
+            _connection.SubscribeAsync(subject, msgHandler);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
         _connection?.Dispose();
-        return ValueTask.CompletedTask;
     }
 }

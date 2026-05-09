@@ -1,142 +1,105 @@
-using System.Collections.Concurrent;
 using ChatHub.Core.Interfaces;
+using System.Collections.Concurrent;
 
 namespace ChatHub.Infrastructure.WebSockets;
 
-/// <summary>
-/// Thread-safe registry for managing active WebSocket connections
-/// </summary>
 public class ConnectionRegistry : IConnectionRegistry
 {
     private readonly ConcurrentDictionary<string, IWebSocketConnection> _connections = new();
-    private readonly ConcurrentDictionary<string, ConcurrentHashSet<string>> _serviceIndex = new();
-    private readonly ConcurrentDictionary<string, ConcurrentHashSet<string>> _userIndex = new();
-    
-    public IReadOnlyDictionary<string, IWebSocketConnection> Connections => _connections;
-    
-    public IReadOnlyDictionary<string, IReadOnlyCollection<string>> ServiceIndex =>
-        _serviceIndex.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyCollection<string>)kvp.Value);
-    
-    public IReadOnlyDictionary<string, IReadOnlyCollection<string>> UserIndex =>
-        _userIndex.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyCollection<string>)kvp.Value);
-    
-    public void Register(IWebSocketConnection connection)
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _serviceIndex = new();
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _userIndex = new();
+
+    public void Register(string connectionId, IWebSocketConnection connection)
     {
-        _connections[connection.ConnectionId] = connection;
-        
+        _connections[connectionId] = connection;
         _userIndex.AddOrUpdate(
             connection.UserId,
-            _ => new ConcurrentHashSet<string> { connection.ConnectionId },
-            (_, set) =>
-            {
-                set.Add(connection.ConnectionId);
-                return set;
-            });
+            _ => new ConcurrentDictionary<string, byte> { [connectionId] = 1 },
+            (_, dict) => { dict[connectionId] = 1; return dict; }
+        );
     }
-    
-    public void Deregister(string connectionId)
+
+    public void Unregister(string connectionId)
     {
         if (_connections.TryRemove(connectionId, out var connection))
         {
             // Remove from user index
             if (_userIndex.TryGetValue(connection.UserId, out var userConnections))
             {
-                userConnections.TryRemove(connectionId);
+                userConnections.TryRemove(connectionId, out _);
                 if (userConnections.IsEmpty)
-                {
                     _userIndex.TryRemove(connection.UserId, out _);
-                }
             }
-            
-            // Remove from all service indices
-            foreach (var serviceId in connection.JoinedServices)
+
+            // Remove from all services
+            foreach (var serviceId in ((WebSocketConnection)connection).JoinedServices)
             {
-                RemoveFromService(connectionId, serviceId);
+                LeaveService(connectionId, serviceId);
             }
         }
     }
-    
-    public IWebSocketConnection? GetConnection(string connectionId)
+
+    public IWebSocketConnection? Get(string connectionId)
     {
         _connections.TryGetValue(connectionId, out var connection);
         return connection;
     }
-    
-    public IReadOnlyCollection<IWebSocketConnection> GetConnectionsByService(string serviceId)
+
+    public IEnumerable<IWebSocketConnection> GetByService(string serviceId)
     {
         if (_serviceIndex.TryGetValue(serviceId, out var connectionIds))
         {
-            return connectionIds
-                .Select(id => _connections.TryGetValue(id, out var conn) ? conn : null)
-                .Where(c => c != null)
-                .Cast<IWebSocketConnection>()
-                .ToList();
+            foreach (var connectionId in connectionIds.Keys)
+            {
+                if (_connections.TryGetValue(connectionId, out var connection))
+                    yield return connection;
+            }
         }
-        return Array.Empty<IWebSocketConnection>();
     }
-    
-    public IReadOnlyCollection<IWebSocketConnection> GetConnectionsByUser(string userId)
+
+    public IEnumerable<IWebSocketConnection> GetByUser(string userId)
     {
         if (_userIndex.TryGetValue(userId, out var connectionIds))
         {
-            return connectionIds
-                .Select(id => _connections.TryGetValue(id, out var conn) ? conn : null)
-                .Where(c => c != null)
-                .Cast<IWebSocketConnection>()
-                .ToList();
-        }
-        return Array.Empty<IWebSocketConnection>();
-    }
-    
-    public void AddToService(string connectionId, string serviceId)
-    {
-        _serviceIndex.AddOrUpdate(
-            serviceId,
-            _ => new ConcurrentHashSet<string> { connectionId },
-            (_, set) =>
+            foreach (var connectionId in connectionIds.Keys)
             {
-                set.Add(connectionId);
-                return set;
-            });
-        
+                if (_connections.TryGetValue(connectionId, out var connection))
+                    yield return connection;
+            }
+        }
+    }
+
+    public void JoinService(string connectionId, string serviceId)
+    {
         if (_connections.TryGetValue(connectionId, out var connection))
         {
             connection.JoinService(serviceId);
+            _serviceIndex.AddOrUpdate(
+                serviceId,
+                _ => new ConcurrentDictionary<string, byte> { [connectionId] = 1 },
+                (_, dict) => { dict[connectionId] = 1; return dict; }
+            );
         }
     }
-    
-    public void RemoveFromService(string connectionId, string serviceId)
+
+    public void LeaveService(string connectionId, string serviceId)
     {
-        if (_serviceIndex.TryGetValue(serviceId, out var connections))
-        {
-            connections.TryRemove(connectionId);
-            if (connections.IsEmpty)
-            {
-                _serviceIndex.TryRemove(serviceId, out _);
-            }
-        }
-        
         if (_connections.TryGetValue(connectionId, out var connection))
         {
             connection.LeaveService(serviceId);
+            if (_serviceIndex.TryGetValue(serviceId, out var serviceConnections))
+            {
+                serviceConnections.TryRemove(connectionId, out _);
+                if (serviceConnections.IsEmpty)
+                    _serviceIndex.TryRemove(serviceId, out _);
+            }
         }
     }
-}
 
-/// <summary>
-/// Thread-safe hash set implementation
-/// </summary>
-public class ConcurrentHashSet<T> : IReadOnlyCollection<T> where T : notnull
-{
-    private readonly ConcurrentDictionary<T, byte> _dictionary = new();
-    
-    public int Count => _dictionary.Count;
-    public bool IsEmpty => _dictionary.IsEmpty;
-    
-    public bool Add(T item) => _dictionary.TryAdd(item, 0);
-    public bool TryRemove(T item) => _dictionary.TryRemove(item, out _);
-    public bool Contains(T item) => _dictionary.ContainsKey(item);
-    
-    public IEnumerator<T> GetEnumerator() => _dictionary.Keys.GetEnumerator();
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    public IEnumerable<string> GetServiceConnectionIds(string serviceId)
+    {
+        if (_serviceIndex.TryGetValue(serviceId, out var connectionIds))
+            return connectionIds.Keys.ToList();
+        return Enumerable.Empty<string>();
+    }
 }

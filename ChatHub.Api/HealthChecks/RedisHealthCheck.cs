@@ -1,41 +1,28 @@
+using ChatHub.Core.Interfaces;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using StackExchange.Redis;
 
 namespace ChatHub.Api.HealthChecks;
 
-/// <summary>
-/// Health check for Redis connection
-/// </summary>
 public class RedisHealthCheck : IHealthCheck
 {
-    private readonly IConnectionMultiplexer _redis;
-    private readonly ILogger<RedisHealthCheck> _logger;
-    
-    public RedisHealthCheck(
-        IConnectionMultiplexer redis,
-        ILogger<RedisHealthCheck> logger)
+    private readonly IPresenceService _presenceService;
+
+    public RedisHealthCheck(IPresenceService presenceService)
     {
-        _redis = redis;
-        _logger = logger;
+        _presenceService = presenceService;
     }
-    
-    public Task<HealthCheckResult> CheckHealthAsync(
-        HealthCheckContext context,
-        CancellationToken ct = default)
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         try
         {
-            if (_redis.IsConnected)
-            {
-                return Task.FromResult(HealthCheckResult.Healthy("Redis connected"));
-            }
-            
-            return Task.FromResult(HealthCheckResult.Unhealthy("Redis not connected"));
+            // Try a simple operation
+            await _presenceService.IsUserOnlineAsync("health-check", "test", cancellationToken);
+            return HealthCheckResult.Healthy("Redis is healthy");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Redis health check failed");
-            return Task.FromResult(HealthCheckResult.Unhealthy("Redis check failed", ex));
+            return HealthCheckResult.Unhealthy("Redis is unhealthy", ex);
         }
     }
 }

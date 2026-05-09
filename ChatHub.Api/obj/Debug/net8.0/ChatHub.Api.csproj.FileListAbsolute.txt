@@ -1,0 +1,8 @@
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.csproj.AssemblyReference.cache
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\rpswa.dswa.cache.json
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.GeneratedMSBuildEditorConfig.editorconfig
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.AssemblyInfoInputs.cache
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.AssemblyInfo.cs
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.csproj.CoreCompileInputs.cache
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.MvcApplicationPartsAssemblyInfo.cache
+D:\Study\chat-app\chat-hub\ChatHub.Api\obj\Debug\net8.0\ChatHub.Api.sourcelink.json

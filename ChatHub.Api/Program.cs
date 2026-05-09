@@ -1,100 +1,141 @@
 using ChatHub.Api.HealthChecks;
 using ChatHub.Api.Handlers;
+using ChatHub.Api.Metrics;
 using ChatHub.Api.Middleware;
 using ChatHub.Core.Interfaces;
-using ChatHub.Core.Models;
 using ChatHub.Core.Settings;
-using ChatHub.Infrastructure.Auth;
 using ChatHub.Infrastructure.Cache;
 using ChatHub.Infrastructure.Nats;
 using ChatHub.Infrastructure.Persistence;
 using ChatHub.Infrastructure.Storage;
 using ChatHub.Infrastructure.WebSockets;
 using ChatHub.Infrastructure.Writers;
-using MongoDB.Driver;
-using NATS.Client;
-using StackExchange.Redis;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add settings
-builder.Services.Configure<ChatHubSettings>(
-    builder.Configuration.GetSection(ChatHubSettings.SectionName));
-builder.Services.Configure<NatsSettings>(
-    builder.Configuration.GetSection(NatsSettings.SectionName));
-builder.Services.Configure<MongoSettings>(
-    builder.Configuration.GetSection(MongoSettings.SectionName));
-builder.Services.Configure<StorageSettings>(
-    builder.Configuration.GetSection(StorageSettings.SectionName));
-builder.Services.Configure<JwtSettings>(
-    builder.Configuration.GetSection(JwtSettings.SectionName));
-builder.Services.Configure<RedisSettings>(
-    builder.Configuration.GetSection(RedisSettings.SectionName));
+// Add configuration
+builder.Configuration.AddEnvironmentVariables();
 
-// Add MongoDB
-builder.Services.AddSingleton<IMongoClient>(sp =>
+// Configure settings
+builder.Services.Configure<ChatHubSettings>(options =>
 {
-    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MongoSettings>>().Value;
-    return new MongoClient(settings.ConnectionString);
+    options.MaxMessageSizeBytes = builder.Configuration.GetValue<int>("CHATHUB_MAX_MESSAGE_SIZE_BYTES", 65536);
+    options.PingIntervalSeconds = builder.Configuration.GetValue<int>("CHATHUB_PING_INTERVAL_SECONDS", 15);
+    options.IdleTimeoutMinutes = builder.Configuration.GetValue<int>("CHATHUB_IDLE_TIMEOUT_MINUTES", 30);
+    options.RateLimitTextPerMinute = builder.Configuration.GetValue<int>("CHATHUB_RATE_LIMIT_TEXT_PER_MINUTE", 100);
+    options.RateLimitVoicePerMinute = builder.Configuration.GetValue<int>("CHATHUB_RATE_LIMIT_VOICE_PER_MINUTE", 10);
+    options.PodId = builder.Configuration.GetValue<string>("POD_ID", "unknown")!;
+    
+    var origins = builder.Configuration.GetValue<string>("CHATHUB_ALLOWED_ORIGINS", "");
+    options.AllowedOrigins = origins?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
 });
 
-builder.Services.AddScoped(sp =>
+builder.Services.Configure<MongoSettings>(options =>
 {
-    var client = sp.GetRequiredService<IMongoClient>();
-    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MongoSettings>>().Value;
-    return client.GetDatabase(settings.DatabaseName);
+    options.ConnectionString = builder.Configuration.GetValue<string>("MONGO_CONNECTION_STRING", "mongodb://localhost:27017/chathub")!;
+    options.DatabaseName = builder.Configuration.GetValue<string>("MONGO_DATABASE_NAME", "chathub")!;
 });
 
-// Add Redis
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+builder.Services.Configure<NatsSettings>(options =>
 {
-    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RedisSettings>>().Value;
-    return ConnectionMultiplexer.Connect(settings.ConnectionString);
+    options.Url = builder.Configuration.GetValue<string>("NATS_URL", "nats://localhost:4222")!;
+    options.QueueGroup = builder.Configuration.GetValue<string>("NATS_QUEUE_GROUP", "chathub-hub")!;
 });
 
-// Add NATS
-builder.Services.AddSingleton<IConnection>(sp =>
+builder.Services.Configure<RedisSettings>(options =>
 {
-    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<NatsSettings>>().Value;
-    var opts = ConnectionFactory.GetDefaultOptions();
-    opts.Url = settings.Url;
-    var factory = new ConnectionFactory();
-    return factory.CreateConnection(opts);
+    options.ConnectionString = builder.Configuration.GetValue<string>("REDIS_CONNECTION_STRING", "localhost:6379")!;
 });
 
-// Add core services
+builder.Services.Configure<StorageSettings>(options =>
+{
+    options.Endpoint = builder.Configuration.GetValue<string>("S3_ENDPOINT", "http://localhost:9000")!;
+    options.AccessKey = builder.Configuration.GetValue<string>("S3_ACCESS_KEY", "minioadmin")!;
+    options.SecretKey = builder.Configuration.GetValue<string>("S3_SECRET_KEY", "minioadmin")!;
+    options.Bucket = builder.Configuration.GetValue<string>("S3_BUCKET", "chathub-uploads")!;
+    options.Region = builder.Configuration.GetValue<string>("S3_REGION", "us-east-1")!;
+    options.ForcePathStyle = builder.Configuration.GetValue<bool>("S3_FORCE_PATH_STYLE", true);
+});
+
+// Add authentication
+var jwtKey = builder.Configuration.GetValue<string>("JWT_SIGNING_KEY", "your-256-bit-secret-key-here-change-in-production");
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration.GetValue<string>("JWT_ISSUER", "ChatHub"),
+            ValidAudience = builder.Configuration.GetValue<string>("JWT_AUDIENCE", "ChatHub"),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+// Add services
 builder.Services.AddSingleton<IConnectionRegistry, ConnectionRegistry>();
 builder.Services.AddSingleton<IWebSocketSender, WebSocketSender>();
-builder.Services.AddSingleton<INatsBackplane, NatsBackplane>();
+builder.Services.AddSingleton<INatsBackplane>(sp =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<NatsSettings>>().Value;
+    var chatHubSettings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ChatHubSettings>>().Value;
+    return new NatsBackplane(settings, chatHubSettings.PodId);
+});
 builder.Services.AddSingleton<IMessageDispatcher, MessageDispatcher>();
-builder.Services.AddSingleton<IJwtValidator, JwtValidator>();
 
-// Add scoped repositories
-builder.Services.AddScoped<IMessageRepository, MessageRepository>();
-builder.Services.AddScoped<IConversationRepository, ConversationRepository>();
-
-// Add Redis services
-builder.Services.AddSingleton<IPresenceService, RedisPresenceService>();
 builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
-builder.Services.AddSingleton<IVoiceSessionBuffer, RedisVoiceSessionBuffer>();
-
-// Add storage
+builder.Services.AddSingleton<IPresenceService, RedisPresenceService>();
 builder.Services.AddSingleton<IBlobStorageClient, S3BlobStorageClient>();
+
+builder.Services.AddSingleton<IMessageRepository, MessageRepository>();
+builder.Services.AddSingleton<IConversationRepository, ConversationRepository>();
+
+// Add voice messaging services
+builder.Services.AddSingleton<VoiceSessionBuffer>();
+
+// Add message handlers
+builder.Services.AddScoped<JoinServiceHandler>();
+builder.Services.AddScoped<LeaveServiceHandler>();
+builder.Services.AddScoped<TextMessageHandler>();
+builder.Services.AddScoped<DeliveredHandler>();
+builder.Services.AddScoped<PongHandler>();
+builder.Services.AddScoped<VoiceChunkHandler>();
+builder.Services.AddScoped<VoiceMessageHandler>();
+builder.Services.AddScoped<FileAttachmentHandler>();
+builder.Services.AddScoped<TypingHandler>();
+
+// Register handler interfaces
+builder.Services.AddScoped<IJoinServiceHandler>(sp => sp.GetRequiredService<JoinServiceHandler>());
+builder.Services.AddScoped<ILeaveServiceHandler>(sp => sp.GetRequiredService<LeaveServiceHandler>());
+builder.Services.AddScoped<ITextMessageHandler>(sp => sp.GetRequiredService<TextMessageHandler>());
+builder.Services.AddScoped<IAckHandler>(sp => sp.GetRequiredService<DeliveredHandler>());
+builder.Services.AddScoped<IPongHandler>(sp => sp.GetRequiredService<PongHandler>());
+builder.Services.AddScoped<IVoiceChunkHandler>(sp => sp.GetRequiredService<VoiceChunkHandler>());
+builder.Services.AddScoped<IVoiceMessageHandler>(sp => sp.GetRequiredService<VoiceMessageHandler>());
+builder.Services.AddScoped<IFileAttachmentHandler>(sp => sp.GetRequiredService<FileAttachmentHandler>());
+builder.Services.AddScoped<ITypingHandler>(sp => sp.GetRequiredService<TypingHandler>());
 
 // Add hosted services
 builder.Services.AddHostedService<MongoInitializer>();
-builder.Services.AddHostedService<NatsSubscriberService>();
 builder.Services.AddHostedService<MongoWriterService>();
+builder.Services.AddHostedService<NatsSubscriberService>();
 
-// Add message handlers
-builder.Services.AddScoped<IMessageHandler<JoinServiceMessage>, JoinServiceHandler>();
-builder.Services.AddScoped<IMessageHandler<LeaveServiceMessage>, LeaveServiceHandler>();
-builder.Services.AddScoped<IMessageHandler<TextMessage>, TextMessageHandler>();
-builder.Services.AddScoped<IMessageHandler<TypingMessage>, TypingHandler>();
-builder.Services.AddScoped<IMessageHandler<VoiceChunkMessage>, VoiceChunkHandler>();
-builder.Services.AddScoped<IMessageHandler<VoiceMessage>, VoiceMessageHandler>();
-builder.Services.AddScoped<IMessageHandler<FileAttachmentMessage>, FileAttachmentHandler>();
-builder.Services.AddScoped<IMessageHandler<AckMessage>, AckHandler>();
+// Add metrics
+builder.Services.AddSingleton<ChatMetrics>();
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics.AddMeter("ChatHub");
+        metrics.AddPrometheusExporter();
+    });
+
+// Add controllers
+builder.Services.AddControllers();
 
 // Add health checks
 builder.Services.AddHealthChecks()
@@ -102,35 +143,33 @@ builder.Services.AddHealthChecks()
     .AddCheck<RedisHealthCheck>("redis")
     .AddCheck<NatsHealthCheck>("nats");
 
-// Add controllers
-builder.Services.AddControllers();
-
-// Add logging
-builder.Services.AddLogging(logging =>
-{
-    logging.AddConsole();
-    logging.AddDebug();
-});
-
 var app = builder.Build();
 
 // Configure middleware
+app.UseMiddleware<CorrelationIdMiddleware>();
+
 app.UseWebSockets(new WebSocketOptions
 {
-    KeepAliveInterval = TimeSpan.FromSeconds(15)
+    KeepAliveInterval = TimeSpan.FromSeconds(30)
 });
 
-app.UseChatHubWebSockets();
+app.UseAuthentication();
+app.UseAuthorization();
 
-app.UseRouting();
-
-// Health check endpoints
-app.MapHealthChecks("/health");
-app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+// Map health checks
+app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/readyz", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
-    Predicate = check => check.Tags.Contains("ready")
+    Predicate = check => true
 });
 
+// Map Prometheus metrics
+app.MapPrometheusScrapingEndpoint();
+
+// Map controllers
 app.MapControllers();
+
+// Map WebSocket middleware
+app.UseChatHubWebSockets();
 
 app.Run();
