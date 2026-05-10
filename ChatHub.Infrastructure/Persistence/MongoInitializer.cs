@@ -67,6 +67,36 @@ public class MongoInitializer : IHostedService
                 new CreateIndexOptions { ExpireAfter = TimeSpan.FromHours(24) }) // TTL index
         }, cancellationToken);
 
+        // Rate limits collection (ephemeral)
+        var rateLimitsCollection = _database.GetCollection<RateLimitDocument>("rate_limits");
+        
+        var rateLimitIndexes = Builders<RateLimitDocument>.IndexKeys;
+        await rateLimitsCollection.Indexes.CreateManyAsync(new[]
+        {
+            new CreateIndexModel<RateLimitDocument>(
+                rateLimitIndexes.Ascending(r => r.ConnectionId).Ascending(r => r.Type).Ascending(r => r.WindowStart),
+                new CreateIndexOptions { Unique = true }),
+            new CreateIndexModel<RateLimitDocument>(
+                rateLimitIndexes.Ascending(r => r.ExpiresAt),
+                new CreateIndexOptions { ExpireAfter = TimeSpan.FromMinutes(1) }) // TTL index
+        }, cancellationToken);
+
+        // Presence collection (ephemeral)
+        var presenceCollection = _database.GetCollection<PresenceDocument>("presence");
+        
+        var presenceIndexes = Builders<PresenceDocument>.IndexKeys;
+        await presenceCollection.Indexes.CreateManyAsync(new[]
+        {
+            new CreateIndexModel<PresenceDocument>(
+                presenceIndexes.Ascending(p => p.ServiceId).Ascending(p => p.UserId),
+                new CreateIndexOptions { Unique = true }),
+            new CreateIndexModel<PresenceDocument>(
+                presenceIndexes.Ascending(p => p.ServiceId).Ascending(p => p.UpdatedAt)),
+            new CreateIndexModel<PresenceDocument>(
+                presenceIndexes.Ascending(p => p.ExpiresAt),
+                new CreateIndexOptions { ExpireAfter = TimeSpan.FromMinutes(1) }) // TTL index
+        }, cancellationToken);
+
         _logger.LogInformation("MongoDB initialization complete");
     }
 

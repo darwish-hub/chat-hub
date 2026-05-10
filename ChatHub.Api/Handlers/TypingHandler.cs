@@ -49,7 +49,7 @@ public class TypingHandler : ITypingHandler
         if (message.IsTyping)
         {
             // User started typing
-            var existingState = _typingStates.GetOrAdd(stateKey, _ =>
+            var existingState = _typingStates.GetOrAdd(stateKey, _key =>
             {
                 // New typing session - broadcast immediately
                 _ = BroadcastTypingAsync(connection, message.ConversationId, true, ct);
@@ -83,7 +83,7 @@ public class TypingHandler : ITypingHandler
         }
     }
 
-    private System.Timers.Timer CreateDebounceTimer(string stateKey, WebSocketConnection connection, string conversationId)
+    private System.Timers.Timer CreateDebounceTimer(string stateKey, IWebSocketConnection connection, string conversationId)
     {
         var timer = new System.Timers.Timer(TypingTimeoutMs);
         timer.Elapsed += async (sender, e) =>
@@ -112,7 +112,7 @@ public class TypingHandler : ITypingHandler
         return timer;
     }
 
-    private async Task BroadcastTypingAsync(WebSocketConnection connection, string conversationId, bool isTyping, CancellationToken ct)
+    private async Task BroadcastTypingAsync(IWebSocketConnection connection, string conversationId, bool isTyping, CancellationToken ct)
     {
         var typingIndicator = new TypingIndicator
         {

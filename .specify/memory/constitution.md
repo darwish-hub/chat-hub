@@ -33,7 +33,7 @@ Use NATS core pub/sub with queue groups for load-balanced delivery across pods. 
 ### IV. Layered Architecture with Clear Boundaries
 Maintain strict separation between layers:
 - **ChatHub.Core**: Models, DTOs, interfaces, settings — no external dependencies
-- **ChatHub.Infrastructure**: Implementations (WebSockets, NATS, MongoDB, Redis, S3)
+- **ChatHub.Infrastructure**: Implementations (WebSockets, NATS, MongoDB, S3)
 - **ChatHub.Api**: Middleware, controllers, DI wiring — thin layer only
 
 **Rationale**: Clean architecture enables testability, allows infrastructure swapping, and prevents business logic leakage into transport concerns.
@@ -49,7 +49,7 @@ All blocking or slow I/O (MongoDB writes, NATS publishes, S3 uploads) happen in 
 - **.NET 8+**: ASP.NET Core with native WebSocket middleware
 - **MongoDB 7+**: Official .NET driver, no ODM abstraction
 - **NATS Server**: Core pub/sub only, no JetStream, 3-node cluster
-- **Redis 7+**: Presence, session state, rate limiting, voice chunk assembly
+- **In-Memory Cache**: Presence, session state, rate limiting, voice chunk assembly (pod-local)
 - **S3-Compatible Storage**: MinIO for local, AWS S3 for production
 
 ### Development Standards
@@ -68,7 +68,7 @@ All blocking or slow I/O (MongoDB writes, NATS publishes, S3 uploads) happen in 
 - Ingress with extended timeouts (3600s) for WebSocket support
 
 ### Monitoring
-- Health checks for NATS, MongoDB, Redis
+- Health checks for NATS, MongoDB
 - Metrics: active connections, message throughput, latency percentiles
 - Distributed tracing across pod boundaries
 

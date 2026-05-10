@@ -324,4 +324,4 @@ Success criteria must be:
 - "API response time is under 200ms" (too technical, use "Users see results instantly")
 - "Database can handle 1000 TPS" (implementation detail, use user-facing metric)
 - "React components render efficiently" (framework-specific)
-- "Redis cache hit rate above 80%" (technology-specific)
+- "In-memory cache efficiency above 80%" (technology-specific)

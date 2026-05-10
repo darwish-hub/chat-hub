@@ -9,7 +9,8 @@ using System.Text.Json;
 namespace ChatHub.Api.Handlers;
 
 /// <summary>
-/// Handles file attachment messages - persists metadata and broadcasts to participants
+/// Handles file attachment messages - persists metadata and broadcasts to participants.
+/// Supports voice, video, images, and generic files. The message type is inferred from MIME type.
 /// </summary>
 public class FileAttachmentHandler : IFileAttachmentHandler
 {
@@ -52,8 +53,8 @@ public class FileAttachmentHandler : IFileAttachmentHandler
         // Rate limiting check
         if (!await _rateLimiter.CanSendTextAsync(connectionId, ct))
         {
-            _logger.LogWarning("Rate limit exceeded for file attachments on connection {ConnectionId}", connectionId);
-            await SendErrorAsync(connectionId, "rate_limit_exceeded", "Too many file attachments sent", message.Id);
+            _logger.LogWarning("Rate limit exceeded for attachments on connection {ConnectionId}", connectionId);
+            await SendErrorAsync(connectionId, "rate_limit_exceeded", "Too many attachments sent", message.Id);
             return;
         }
 
@@ -66,26 +67,26 @@ public class FileAttachmentHandler : IFileAttachmentHandler
             return;
         }
 
-        // Validate file metadata
+        // Validate attachment metadata
         if (string.IsNullOrWhiteSpace(message.BlobId))
         {
-            _logger.LogWarning("File attachment missing blobId from connection {ConnectionId}", connectionId);
-            await SendErrorAsync(connectionId, "invalid_file", "File blobId is required", message.Id);
+            _logger.LogWarning("Attachment missing blobId from connection {ConnectionId}", connectionId);
+            await SendErrorAsync(connectionId, "invalid_attachment", "Attachment blobId is required", message.Id);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(message.FileName))
         {
-            _logger.LogWarning("File attachment missing filename from connection {ConnectionId}", connectionId);
-            await SendErrorAsync(connectionId, "invalid_file", "File name is required", message.Id);
+            _logger.LogWarning("Attachment missing filename from connection {ConnectionId}", connectionId);
+            await SendErrorAsync(connectionId, "invalid_attachment", "Attachment file name is required", message.Id);
             return;
         }
 
         if (message.SizeBytes <= 0 || message.SizeBytes > 104_857_600) // 100 MB
         {
-            _logger.LogWarning("File attachment has invalid size {SizeBytes} from connection {ConnectionId}",
+            _logger.LogWarning("Attachment has invalid size {SizeBytes} from connection {ConnectionId}",
                 message.SizeBytes, connectionId);
-            await SendErrorAsync(connectionId, "invalid_file", "File size is invalid", message.Id);
+            await SendErrorAsync(connectionId, "invalid_attachment", "Attachment size is invalid", message.Id);
             return;
         }
 
@@ -95,38 +96,42 @@ public class FileAttachmentHandler : IFileAttachmentHandler
             var originalMessage = await _messageRepository.GetByIdAsync(message.ReplyToId, ct);
             if (originalMessage == null)
             {
-                _logger.LogWarning("ReplyToId {ReplyToId} not found for file attachment from connection {ConnectionId}",
+                _logger.LogWarning("ReplyToId {ReplyToId} not found for attachment from connection {ConnectionId}",
                     message.ReplyToId, connectionId);
                 await SendErrorAsync(connectionId, "invalid_reply", "The message you are replying to does not exist", message.Id);
                 return;
             }
-            
+
             if (originalMessage.ConversationId != message.ConversationId)
             {
-                _logger.LogWarning("ReplyToId {ReplyToId} is in a different conversation for file attachment from connection {ConnectionId}",
+                _logger.LogWarning("ReplyToId {ReplyToId} is in a different conversation for attachment from connection {ConnectionId}",
                     message.ReplyToId, connectionId);
                 await SendErrorAsync(connectionId, "invalid_reply", "Cannot reply to a message from a different conversation", message.Id);
                 return;
             }
         }
 
+        // Infer message type from MIME type
+        var messageType = InferMessageType(message.MimeType);
+
         // Record rate limit usage
         await _rateLimiter.RecordTextAsync(connectionId, ct);
 
-        // Create message document with file metadata
+        // Create message document with attachment metadata
         var messageDocument = new MessageDocument
         {
             Id = ObjectId.GenerateNewId().ToString(),
             ConversationId = message.ConversationId,
             ServiceId = message.ConversationId, // Use conversation ID as service for now
             SenderId = connection.UserId,
-            Type = "file",
-            File = new FileMetadata
+            Type = messageType,
+            Attachment = new AttachmentMetadata
             {
                 BlobId = message.BlobId,
                 FileName = message.FileName,
                 MimeType = message.MimeType,
-                SizeBytes = message.SizeBytes
+                SizeBytes = message.SizeBytes,
+                DurationMs = message.DurationMs
             },
             ReplyToId = message.ReplyToId,
             CreatedAt = DateTime.UtcNow
@@ -135,8 +140,8 @@ public class FileAttachmentHandler : IFileAttachmentHandler
         // Write to MongoDB via channel (will trigger NATS publish)
         await _mongoWriter.Writer.WriteAsync(messageDocument, ct);
 
-        _logger.LogInformation("File attachment {FileName} ({BlobId}) from user {UserId} queued for persistence",
-            message.FileName, message.BlobId, connection.UserId);
+        _logger.LogInformation("Attachment {FileName} ({BlobId}) type={MessageType} from user {UserId} queued for persistence",
+            message.FileName, message.BlobId, messageType, connection.UserId);
 
         // Send delivery confirmation to sender
         var deliveredReceipt = new DeliveredReceipt
@@ -157,13 +162,14 @@ public class FileAttachmentHandler : IFileAttachmentHandler
             ConversationId = message.ConversationId,
             ServiceId = messageDocument.ServiceId,
             SenderId = connection.UserId,
-            Type = "file",
-            File = new FileInfo
+            Type = messageType,
+            Attachment = new AttachmentInfo
             {
                 BlobId = message.BlobId,
                 FileName = message.FileName,
                 MimeType = message.MimeType,
-                SizeBytes = message.SizeBytes
+                SizeBytes = message.SizeBytes,
+                DurationMs = message.DurationMs
             },
             ReplyToId = message.ReplyToId,
             CreatedAt = messageDocument.CreatedAt
@@ -197,7 +203,20 @@ public class FileAttachmentHandler : IFileAttachmentHandler
         // Update conversation last message time
         await _conversationRepository.UpdateLastMessageAtAsync(message.ConversationId, DateTime.UtcNow, ct);
 
-        _logger.LogInformation("File attachment {FileName} processed and broadcast successfully", message.FileName);
+        _logger.LogInformation("Attachment {FileName} processed and broadcast successfully as type {MessageType}",
+            message.FileName, messageType);
+    }
+
+    /// <summary>
+    /// Infer the message type from the MIME type of the attachment.
+    /// </summary>
+    private static string InferMessageType(string mimeType)
+    {
+        if (mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+            return "voice";
+        if (mimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+            return "video";
+        return "file";
     }
 
     private async Task SendErrorAsync(string connectionId, string code, string errorMessage, string correlationId)

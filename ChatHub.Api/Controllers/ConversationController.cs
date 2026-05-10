@@ -1,6 +1,5 @@
 using ChatHub.Core.Documents;
 using ChatHub.Core.Interfaces;
-using ChatHub.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
@@ -156,18 +155,13 @@ public class ConversationController : ControllerBase
                 SenderId = m.SenderId,
                 Type = m.Type,
                 Text = m.Text,
-                Voice = m.Voice != null ? new VoiceInfoDto
+                Attachment = m.Attachment != null ? new AttachmentDto
                 {
-                    BlobId = m.Voice.BlobId,
-                    DurationMs = m.Voice.DurationMs,
-                    MimeType = m.Voice.MimeType
-                } : null,
-                File = m.File != null ? new FileInfoDto
-                {
-                    BlobId = m.File.BlobId,
-                    FileName = m.File.FileName,
-                    MimeType = m.File.MimeType,
-                    SizeBytes = m.File.SizeBytes
+                    BlobId = m.Attachment.BlobId,
+                    FileName = m.Attachment.FileName,
+                    MimeType = m.Attachment.MimeType,
+                    SizeBytes = m.Attachment.SizeBytes,
+                    DurationMs = m.Attachment.DurationMs
                 } : null,
                 ReplyToId = m.ReplyToId,
                 CreatedAt = m.CreatedAt
@@ -214,18 +208,13 @@ public class ConversationController : ControllerBase
                 SenderId = originalMessage.SenderId,
                 Type = originalMessage.Type,
                 Text = originalMessage.Text,
-                Voice = originalMessage.Voice != null ? new VoiceInfoDto
+                Attachment = originalMessage.Attachment != null ? new AttachmentDto
                 {
-                    BlobId = originalMessage.Voice.BlobId,
-                    DurationMs = originalMessage.Voice.DurationMs,
-                    MimeType = originalMessage.Voice.MimeType
-                } : null,
-                File = originalMessage.File != null ? new FileInfoDto
-                {
-                    BlobId = originalMessage.File.BlobId,
-                    FileName = originalMessage.File.FileName,
-                    MimeType = originalMessage.File.MimeType,
-                    SizeBytes = originalMessage.File.SizeBytes
+                    BlobId = originalMessage.Attachment.BlobId,
+                    FileName = originalMessage.Attachment.FileName,
+                    MimeType = originalMessage.Attachment.MimeType,
+                    SizeBytes = originalMessage.Attachment.SizeBytes,
+                    DurationMs = originalMessage.Attachment.DurationMs
                 } : null,
                 ReplyToId = originalMessage.ReplyToId,
                 CreatedAt = originalMessage.CreatedAt
@@ -236,18 +225,13 @@ public class ConversationController : ControllerBase
                 SenderId = m.SenderId,
                 Type = m.Type,
                 Text = m.Text,
-                Voice = m.Voice != null ? new VoiceInfoDto
+                Attachment = m.Attachment != null ? new AttachmentDto
                 {
-                    BlobId = m.Voice.BlobId,
-                    DurationMs = m.Voice.DurationMs,
-                    MimeType = m.Voice.MimeType
-                } : null,
-                File = m.File != null ? new FileInfoDto
-                {
-                    BlobId = m.File.BlobId,
-                    FileName = m.File.FileName,
-                    MimeType = m.File.MimeType,
-                    SizeBytes = m.File.SizeBytes
+                    BlobId = m.Attachment.BlobId,
+                    FileName = m.Attachment.FileName,
+                    MimeType = m.Attachment.MimeType,
+                    SizeBytes = m.Attachment.SizeBytes,
+                    DurationMs = m.Attachment.DurationMs
                 } : null,
                 ReplyToId = m.ReplyToId,
                 CreatedAt = m.CreatedAt
@@ -278,25 +262,18 @@ public class MessageDto
     public string SenderId { get; set; } = null!;
     public string Type { get; set; } = null!;
     public string? Text { get; set; }
-    public VoiceInfoDto? Voice { get; set; }
-    public FileInfoDto? File { get; set; }
+    public AttachmentDto? Attachment { get; set; }
     public string? ReplyToId { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
-public class VoiceInfoDto
-{
-    public string BlobId { get; set; } = null!;
-    public int DurationMs { get; set; }
-    public string MimeType { get; set; } = null!;
-}
-
-public class FileInfoDto
+public class AttachmentDto
 {
     public string BlobId { get; set; } = null!;
     public string FileName { get; set; } = null!;
     public string MimeType { get; set; } = null!;
     public long SizeBytes { get; set; }
+    public int? DurationMs { get; set; }
 }
 
 public class ThreadResponse

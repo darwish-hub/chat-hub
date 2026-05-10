@@ -22,7 +22,7 @@ public class PongHandler : IPongHandler
         var connection = _connectionRegistry.Get(connectionId);
         if (connection != null)
         {
-            connection.LastPongAt = DateTime.UtcNow;
+            connection.UpdateLastPong();
             _logger.LogDebug("Received pong from connection {ConnectionId}", connectionId);
         }
 

@@ -96,7 +96,7 @@ public class VoiceChunkHandler : IVoiceChunkHandler
 
         try
         {
-            // Store chunk in Redis for assembly later
+            // Store chunk in memory for assembly later
             await _voiceBuffer.StoreChunkAsync(
                 pending.MessageId,
                 pending.SequenceNumber,

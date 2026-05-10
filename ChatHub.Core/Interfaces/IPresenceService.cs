@@ -1,7 +1,7 @@
 namespace ChatHub.Core.Interfaces;
 
 /// <summary>
-/// Redis-backed presence service
+/// MongoDB-backed presence service
 /// </summary>
 public interface IPresenceService
 {

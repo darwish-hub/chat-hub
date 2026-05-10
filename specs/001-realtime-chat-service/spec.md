@@ -29,13 +29,30 @@ As a chat user, I want to send voice messages in real-time so that I can communi
 
 **Why this priority**: Voice messaging is a critical differentiator for modern chat apps and enables hands-free communication scenarios.
 
-**Independent Test**: A user can record and send a voice message that other participants hear as it is being recorded (streaming), not just after the recording completes.
+**Independent Test**: A user can record and send a voice message that other participants hear as it is being recorded (streaming), not just after the recording completes. Pre-recorded voice is handled as an attachment upload.
 
 **Acceptance Scenarios**:
 
 1. **Given** a user is in a conversation, **When** they start recording a voice message, **Then** other participants receive audio chunks in real-time as they are recorded
-2. **Given** a voice message is being streamed, **When** the sender stops recording, **Then** the complete voice message is saved and available for replay
+2. **Given** a voice message is being streamed, **When** the sender stops recording, **Then** the complete voice message is assembled and stored as an attachment for replay
 3. **Given** a user is receiving a live voice stream, **When** audio chunks arrive, **Then** they are played in the correct sequence without gaps
+4. **Given** a user has a pre-recorded voice file, **When** they upload it via the attachment endpoint, **Then** it is shared in the conversation as a voice attachment
+
+---
+
+### User Story 2b - Video Messaging (Priority: P2)
+
+As a chat user, I want to share video messages in conversations so that I can exchange rich media content with other participants.
+
+**Why this priority**: Video sharing enhances communication beyond text and audio, but is handled through the same attachment flow as files and voice.
+
+**Independent Test**: A user can upload a video file and share it in a conversation, with other participants able to download and view it.
+
+**Acceptance Scenarios**:
+
+1. **Given** a user wants to share a video, **When** they upload it through the attachment endpoint, **Then** they receive a reference to share in the conversation
+2. **Given** a video is shared in a conversation, **When** other participants view the conversation, **Then** they see the video metadata and can download it
+3. **Given** a shared video is available, **When** a participant clicks to download, **Then** they can retrieve the complete video content
 
 ---
 
@@ -102,8 +119,10 @@ As a chat user, I want to reply to specific messages so that I can maintain cont
 - **FR-002**: Users MUST be able to send text messages to conversations they are participants in
 - **FR-003**: Messages MUST be delivered to all active participants in the conversation within 1 second
 - **FR-004**: Users MUST receive confirmation when their messages are successfully delivered
-- **FR-005**: Users MUST be able to record and stream voice messages in real-time
-- **FR-006**: Voice messages MUST be assembled and stored for replay after recording completes
+- **FR-005**: Users MUST be able to record and stream voice messages in real-time; pre-recorded voice MUST be handled as an attachment upload
+- **FR-006**: Voice and video messages MUST be assembled and stored as attachments for replay after recording completes
+- **FR-006a**: Users MUST be able to upload video files and share them in conversations
+- **FR-006b**: Video file metadata (name, size, type, duration if known) MUST be visible to all conversation participants
 - **FR-007**: Users MUST be able to upload files and share them in conversations
 - **FR-008**: File metadata (name, size, type) MUST be visible to all conversation participants
 - **FR-009**: Participants MUST be able to download shared files
@@ -130,7 +149,9 @@ As a chat user, I want to reply to specific messages so that I can maintain cont
 
 - **SC-001**: Messages are delivered to active participants within 1 second in 99% of cases
 - **SC-002**: Users can send and receive up to 100 text messages per minute without rate limiting
-- **SC-003**: Voice messages stream with less than 500ms latency between sender and receiver
+- **SC-003**: Voice messages stream with less than 500ms latency between sender and receiver; pre-recorded voice and video use the attachment flow
+- **SC-003a**: Users can upload video files up to 100 MB in size
+- **SC-003b**: Video downloads complete at a minimum speed of 1 MB/s for files under 50 MB
 - **SC-004**: Users can upload files up to 100 MB in size
 - **SC-005**: The service supports 10,000 concurrent connections without performance degradation
 - **SC-006**: 95% of users can connect to the service within 3 seconds

@@ -10,8 +10,10 @@ public interface IWebSocketConnection
     WebSocket WebSocket { get; }
     DateTime ConnectedAt { get; }
     DateTime LastPongAt { get; }
+    string? CurrentServiceId { get; set; }
     CancellationToken ConnectionToken { get; }
-    
+    CancellationTokenSource Cts { get; }
+
     void UpdateLastPong();
     void JoinService(string serviceId);
     void LeaveService(string serviceId);

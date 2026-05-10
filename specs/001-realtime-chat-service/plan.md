@@ -5,7 +5,7 @@
 
 ## Summary
 
-Build a high-performance real-time chat service with native WebSockets, NATS Core pub/sub backplane, MongoDB persistence, and Redis caching. The service supports text messaging, live voice streaming, file sharing, presence indicators, and message threading across web, iOS, and Android clients.
+Build a high-performance real-time chat service with native WebSockets, NATS Core pub/sub backplane, MongoDB persistence, in-memory presence/rate limiting, and in-memory voice buffering. The service supports text messaging, live voice streaming, file sharing, presence indicators, and message threading across web, iOS, and Android clients.
 
 ## Technical Context
 
@@ -14,12 +14,11 @@ Build a high-performance real-time chat service with native WebSockets, NATS Cor
 - ASP.NET Core native WebSocket middleware
 - NATS core .NET client
 - MongoDB official .NET driver
-- Redis StackExchange client
 - AWS S3/MinIO SDK
 
-**Storage**: MongoDB 7+ (primary persistence), Redis 7+ (caching, presence, rate limiting), S3-compatible storage (blobs)
+**Storage**: MongoDB 7+ (primary persistence, presence, rate limiting), S3-compatible storage (blobs), pod-local memory (voice chunk buffering)
 
-**Testing**: xUnit with Testcontainers (MongoDB, NATS, Redis), WebApplicationFactory for integration tests
+**Testing**: xUnit with Testcontainers (MongoDB, NATS), WebApplicationFactory for integration tests
 
 **Target Platform**: Kubernetes-deployed microservice with horizontal pod autoscaling
 
@@ -62,7 +61,7 @@ Build a high-performance real-time chat service with native WebSockets, NATS Cor
 - **Status**: COMPLIANT
 - **Implementation**:
   - ChatHub.Core: Models, DTOs, interfaces, settings
-  - ChatHub.Infrastructure: WebSockets, NATS, MongoDB, Redis, S3 implementations
+  - ChatHub.Infrastructure: WebSockets, NATS, MongoDB, S3 implementations
   - ChatHub.Api: Middleware, controllers, DI wiring
 
 ### Principle V: Background Services for I/O Offloading ✅
@@ -99,12 +98,11 @@ ChatHub.sln
 │   ├── Controllers/
 │   │   └── UploadController.cs
 │   └── HealthChecks/
-│       ├── NatsHealthCheck.cs
-│       ├── MongoHealthCheck.cs
-│       └── RedisHealthCheck.cs
-├── ChatHub.Core/
-│   ├── Models/                        # ClientMessage, ServerMessage DTOs
-│   ├── Documents/                     # MessageDocument, ConversationDocument
+    │       ├── NatsHealthCheck.cs
+    │       └── MongoHealthCheck.cs
+  ├── ChatHub.Core/
+  │   ├── Models/                        # ClientMessage, ServerMessage, MessageEnvelope DTOs
+  │   ├── Documents/                     # MessageDocument (unified attachment), ConversationDocument
 │   ├── Interfaces/
 │   │   ├── IConnectionRegistry.cs
 │   │   ├── IWebSocketSender.cs
@@ -134,8 +132,10 @@ ChatHub.sln
 │   ├── Writers/
 │   │   └── MongoWriterService.cs      # BackgroundService
 │   ├── Cache/
-│   │   ├── RedisPresenceService.cs
-│   │   └── RedisRateLimiter.cs
+│   │   ├── VoiceSessionBuffer.cs           # In-memory voice chunk storage
+│   │   ├── VoiceSessionCleanupService.cs   # BackgroundService
+    │   │   ├── MongoDbPresenceService.cs
+    │   │   └── MongoDbRateLimiter.cs
 │   └── Storage/
 │       └── S3BlobStorageClient.cs
 ├── ChatHub.Tests/

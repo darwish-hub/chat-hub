@@ -6,7 +6,7 @@
 
 ## Overview
 
-Enable users to upload and share files (documents, images, videos) in conversations, with other participants able to view metadata and download files. This enhances collaboration beyond text and voice messages.
+Enable users to upload and share attachments (documents, images, voice, and video) in conversations, with other participants able to view metadata and download files. This enhances collaboration beyond text messages. Voice and video are treated as attachments with the same upload/share flow, differentiated by MIME type.
 
 ## User Story
 
@@ -22,15 +22,16 @@ Enable users to upload and share files (documents, images, videos) in conversati
 
 ## Functional Requirements
 
-- **FR-F001**: Users MUST be able to upload files via REST API endpoint
-- **FR-F002**: File uploads MUST support streaming to S3 without memory buffering
-- **FR-F003**: Files up to 100 MB MUST be supported
-- **FR-F004**: File metadata (name, size, type, blobId) MUST be returned after upload
-- **FR-F005**: Users MUST be able to share uploaded files via WebSocket message
-- **FR-F006**: File metadata MUST be persisted to MongoDB when shared
-- **FR-F007**: Participants MUST be able to download files via authenticated URL
+- **FR-F001**: Users MUST be able to upload attachments (files, voice, video) via REST API endpoint
+- **FR-F002**: Attachment uploads MUST support streaming to S3 without memory buffering
+- **FR-F003**: Attachments up to 100 MB MUST be supported
+- **FR-F004**: Attachment metadata (name, size, type, blobId, optional duration) MUST be returned after upload
+- **FR-F005**: Users MUST be able to share uploaded attachments via WebSocket `file_attachment` message
+- **FR-F006**: Attachment metadata MUST be persisted to MongoDB when shared
+- **FR-F007**: Participants MUST be able to download attachments via authenticated URL
 - **FR-F008**: Pre-signed URLs MUST be generated for secure downloads
-- **FR-F009**: Rate limiting MUST apply (100 file operations per minute per connection)
+- **FR-F009**: Rate limiting MUST apply (100 attachment operations per minute per connection)
+- **FR-F010**: The server MUST infer the message type (`voice`, `video`, or `file`) from the attachment MIME type
 
 ## Success Criteria
 
@@ -46,10 +47,10 @@ Enable users to upload and share files (documents, images, videos) in conversati
 
 ```
 Upload:
-Client → POST /api/upload/file → Stream to S3 → Return blobId
+Client → POST /api/upload/file → Stream to S3 → Return blobId + metadata
 
 Share:
-Client → WebSocket file_attachment → Handler → MongoDB → NATS broadcast
+Client → WebSocket file_attachment → Handler → MongoDB (type inferred from MIME) → NATS broadcast
 
 Download:
 Client → GET /api/download/{blobId} → Pre-signed URL → S3 → File
@@ -65,6 +66,7 @@ Client → GET /api/download/{blobId} → Pre-signed URL → S3 → File
 
 - `ChatHub.Api/Controllers/UploadController.cs`
 - `ChatHub.Api/Handlers/FileAttachmentHandler.cs`
+- `ChatHub.Api/Handlers/VoiceMessageHandler.cs` (for live streaming completion)
 
 ## REST API Endpoints
 

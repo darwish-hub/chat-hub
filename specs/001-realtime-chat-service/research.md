@@ -71,18 +71,19 @@
 
 ### Caching Layer
 
-**Decision**: Redis 7+ for presence, rate limiting, and voice chunk assembly
+**Decision**: MongoDB for distributed presence and rate limiting; pod-local memory for voice chunk assembly
 
 **Rationale**:
-- Sorted sets perfect for voice chunk sequencing
-- INCR/EXPIRE pattern ideal for sliding window rate limiting
-- Pub/sub not used (NATS handles that)
-- Fast ephemeral storage for session state
+- WebSocket connections are sticky to a single pod, so voice chunks only need to be accessible on that pod
+- Rate limiting uses MongoDB with TTL indexes for distributed consistency across pods
+- Presence uses MongoDB with TTL indexes for distributed state across pods
+- Pub/sub not used for state (NATS handles message fan-out)
+- Eliminates external cache dependency, reducing network hops and operational complexity
 
 **Use Cases**:
-- Presence: `presence:{serviceId}` hash set
-- Rate limiting: `ratelimit:{connectionId}` with TTL
-- Voice assembly: `voice:{messageId}` sorted set by sequence number
+- Presence: MongoDB collection with TTL index on `expiresAt`
+- Rate limiting: MongoDB collection with compound unique index on `connectionId` + `type` + `windowStart`
+- Voice assembly: pod-local `ConcurrentDictionary` with TTL cleanup
 
 ### File Storage
 
@@ -116,12 +117,12 @@
 
 ### Rate Limiting Strategy
 
-**Decision**: Redis-based sliding window counters
+**Decision**: In-memory sliding window counters
 
 **Rationale**:
-- Distributed rate limiting across pods
+- Distributed rate limiting across pods via MongoDB atomic updates
 - Sliding window smoother than fixed window
-- Redis atomic operations prevent race conditions
+- MongoDB `FindOneAndUpdate` prevents race conditions
 
 **Limits**:
 - 100 text/file messages per connection per minute
@@ -148,10 +149,10 @@
 | Transport | Native WebSocket | Direct control, no SignalR |
 | Backplane | NATS Core | Queue groups, low overhead |
 | Persistence | MongoDB | Document model, source of truth |
-| Cache | Redis | Presence, rate limiting, voice assembly |
+| Cache | MongoDB + In-Memory | MongoDB for distributed presence/rate limiting; in-memory for voice assembly |
 | Storage | S3-compatible | Blob storage, streaming |
 | Auth | JWT | Stateless, scalable |
-| Rate Limit | Redis sliding window | Distributed, fair |
+| Rate Limit | MongoDB sliding window | Distributed, fair across pods |
 | Deployment | Kubernetes HPA | Auto-scaling, resilient |
 
 ## Constitution Alignment

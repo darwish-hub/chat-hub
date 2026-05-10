@@ -10,7 +10,8 @@ using System.Text.Json;
 namespace ChatHub.Api.Handlers;
 
 /// <summary>
-/// Handles completed voice messages - assembles chunks, uploads to S3, and persists metadata
+/// Handles completed live voice streams - assembles chunks, uploads to S3, and persists metadata.
+/// This is for live streaming completion only. Pre-recorded voice uses the attachment flow.
 /// </summary>
 public class VoiceMessageHandler : IVoiceMessageHandler
 {
@@ -84,7 +85,7 @@ public class VoiceMessageHandler : IVoiceMessageHandler
                 await SendErrorAsync(connectionId, "invalid_reply", "The message you are replying to does not exist", message.Id);
                 return;
             }
-            
+
             if (originalMessage.ConversationId != message.ConversationId)
             {
                 _logger.LogWarning("ReplyToId {ReplyToId} is in a different conversation for voice message from connection {ConnectionId}",
@@ -96,9 +97,9 @@ public class VoiceMessageHandler : IVoiceMessageHandler
 
         try
         {
-            // Assemble all voice chunks from Redis
+            // Assemble all voice chunks from in-memory buffer
             var audioData = await _voiceBuffer.AssembleAudioAsync(message.Id, ct);
-            
+
             if (audioData.Length == 0)
             {
                 _logger.LogWarning("No voice chunks found for message {MessageId}", message.Id);
@@ -109,7 +110,7 @@ public class VoiceMessageHandler : IVoiceMessageHandler
             // Upload assembled audio to S3
             using var audioStream = new MemoryStream(audioData);
             var blobId = message.BlobId; // Client provides blobId, or we could generate one
-            
+
             await _blobStorage.UploadAsync(blobId, audioStream, message.MimeType, ct);
             _logger.LogInformation("Voice message {MessageId} uploaded to S3 as {BlobId}, size: {Size} bytes",
                 message.Id, blobId, audioData.Length);
@@ -117,7 +118,7 @@ public class VoiceMessageHandler : IVoiceMessageHandler
             // Record rate limit usage
             await _rateLimiter.RecordVoiceAsync(connectionId, ct);
 
-            // Create message document
+            // Create message document with attachment metadata
             var messageDocument = new MessageDocument
             {
                 Id = ObjectId.GenerateNewId().ToString(),
@@ -125,11 +126,13 @@ public class VoiceMessageHandler : IVoiceMessageHandler
                 ServiceId = message.ConversationId, // Use conversation ID as service for now
                 SenderId = connection.UserId,
                 Type = "voice",
-                Voice = new VoiceMetadata
+                Attachment = new AttachmentMetadata
                 {
                     BlobId = blobId,
-                    DurationMs = message.DurationMs,
-                    MimeType = message.MimeType
+                    FileName = $"voice-{message.Id}.opus",
+                    MimeType = message.MimeType,
+                    SizeBytes = audioData.Length,
+                    DurationMs = message.DurationMs > 0 ? message.DurationMs : null
                 },
                 ReplyToId = message.ReplyToId,
                 CreatedAt = DateTime.UtcNow
@@ -138,7 +141,7 @@ public class VoiceMessageHandler : IVoiceMessageHandler
             // Write to MongoDB via channel (will trigger NATS publish)
             await _mongoWriter.Writer.WriteAsync(messageDocument, ct);
 
-            // Clean up Redis chunks
+            // Clean up in-memory chunks
             await _voiceBuffer.DeleteSessionAsync(message.Id, ct);
 
             // Send delivery confirmation
@@ -161,11 +164,13 @@ public class VoiceMessageHandler : IVoiceMessageHandler
                 ServiceId = messageDocument.ServiceId,
                 SenderId = connection.UserId,
                 Type = "voice",
-                Voice = new ChatHub.Core.Models.VoiceInfo
+                Attachment = new AttachmentInfo
                 {
                     BlobId = blobId,
-                    DurationMs = message.DurationMs,
-                    MimeType = message.MimeType
+                    FileName = $"voice-{message.Id}.opus",
+                    MimeType = message.MimeType,
+                    SizeBytes = audioData.Length,
+                    DurationMs = message.DurationMs > 0 ? message.DurationMs : null
                 },
                 ReplyToId = message.ReplyToId,
                 CreatedAt = messageDocument.CreatedAt
@@ -225,3 +230,5 @@ public class VoiceMessageHandler : IVoiceMessageHandler
         await _webSocketSender.SendTextAsync(connectionId, bytes, CancellationToken.None);
     }
 }
+
+

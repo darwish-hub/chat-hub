@@ -39,11 +39,6 @@ spec:
             secretKeyRef:
               name: chathub-secrets
               key: mongodb-connection-string
-        - name: Redis__ConnectionString
-          valueFrom:
-            secretKeyRef:
-              name: chathub-secrets
-              key: redis-connection-string
         - name: Nats__Url
           valueFrom:
             configMapKeyRef:

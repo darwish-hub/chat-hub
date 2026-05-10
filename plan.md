@@ -6,7 +6,7 @@
 - **Backplane**: NATS core pub/sub (no JetStream) — plain publish/subscribe with queue groups for load-balanced pod delivery.
 - **Persistence**: MongoDB via the official .NET driver — no EF Core, no migrations.
 - **Blob storage**: S3-compatible (MinIO for local, AWS S3 for production) for voice and file blobs.
-- **Cache**: Redis for presence, session state, voice chunk assembly, and rate limiting.
+- **Cache**: MongoDB for distributed presence, session state, and rate limiting; in-memory for voice chunk assembly.
 
 All clients (web, iOS, Android) connect using their platform's native WebSocket client. There is no SignalR client SDK dependency on any platform.
 
@@ -172,16 +172,16 @@ Voice chunks arrive as a text envelope (`voice_chunk` type) immediately followed
 Server-side, chunks are:
 
 1. Forwarded immediately to all other connections in the conversation via their send queues (low-latency, bypasses NATS for same-pod connections; NATS for cross-pod).
-2. Accumulated in a `VoiceSessionBuffer` stored in Redis as a sorted set keyed by `voice:{messageId}`, with `sequenceNumber` as the score.
+2. Accumulated in a `VoiceSessionBuffer` stored in pod-local memory with sequence ordering keyed by `voice:{messageId}`.
 
 On `isFinal: true`:
 
-- Retrieve all chunks from Redis in sequence order.
+- Retrieve all chunks from pod-local memory in sequence order.
 - Assemble into a single buffer.
 - Upload to blob storage (S3) via `IBlobStorageClient`.
 - Persist a `voice_message` document to MongoDB via `IMessageRepository`.
 - Publish the `voice_message` envelope to NATS for cross-pod fan-out.
-- Expire the Redis key immediately.
+- Remove the in-memory session immediately.
 
 ### 5.2 Pre-recorded voice
 
@@ -220,7 +220,7 @@ Every handler checks the `ClaimsPrincipal` on the `WebSocketConnection` — no r
 
 ## Phase 8 — Rate limiting
 
-Implement `IRateLimiter` backed by Redis sliding window counters (`INCR` + `EXPIRE`):
+Implement `IRateLimiter` backed by MongoDB sliding window counters:
 
 - 100 text/file messages per connection per minute.
 - 10 voice messages per connection per minute.
@@ -306,7 +306,7 @@ Generate the following complete YAML manifests.
 - Resources: request 256Mi / 0.25 CPU, limit 1Gi / 1 CPU
 - Env vars sourced from ConfigMap and Secrets
 - Liveness: `GET /health` (30s initial delay, 10s period)
-- Readiness: `GET /health/ready` (checks NATS + MongoDB + Redis)
+- Readiness: `GET /health/ready` (checks NATS + MongoDB)
 - Lifecycle `preStop`: sleep 5s to allow graceful WebSocket drain
 
 ### `service.yaml`
@@ -341,7 +341,7 @@ Scale on CPU 70% + custom metric `active_websocket_connections` > 8000 per pod.
 
 ### `secret.yaml` (template with placeholder values)
 
-`JwtSigningKey`, `MongoConnectionString`, `RedisConnectionString`, `S3AccessKey`, `S3SecretKey`.
+`JwtSigningKey`, `MongoConnectionString`, `S3AccessKey`, `S3SecretKey`.
 
 > No `NatsCredentials` secret is needed for unauthenticated in-cluster NATS. Add if mTLS or token auth is enabled on the NATS cluster.
 
@@ -369,7 +369,7 @@ No PVCs required. NATS runs fully in memory.
 | `chathub-api` | build from Dockerfile | 8080:8080 | hot-reload via `dotnet watch` |
 | `nats` | `nats:latest` | 4222 | no `-js` flag needed |
 | `mongo` | `mongo:7` | 27017 | volume for data |
-| `redis` | `redis:7-alpine` | 6379 | |
+
 | `minio` | `minio/minio:latest` | 9000, 9001 | S3-compatible blob storage |
 
 ---
@@ -386,9 +386,8 @@ ChatHub.sln
 │   ├── Controllers/
 │   │   └── UploadController.cs
 │   └── HealthChecks/
-│       ├── NatsHealthCheck.cs
-│       ├── MongoHealthCheck.cs
-│       └── RedisHealthCheck.cs
+    │       ├── NatsHealthCheck.cs
+    │       └── MongoHealthCheck.cs
 ├── ChatHub.Core/
 │   ├── Models/                        ← ClientMessage, ServerMessage, MessageEnvelope DTOs
 │   ├── Documents/                     ← MessageDocument, ConversationDocument (MongoDB shapes)
@@ -420,9 +419,9 @@ ChatHub.sln
 │   │   └── ConversationRepository.cs
 │   ├── Writers/
 │   │   └── MongoWriterService.cs      ← BackgroundService, drains Channel<MessageDocument>
-│   ├── Cache/
-│   │   ├── RedisPresenceService.cs
-│   │   └── RedisRateLimiter.cs
+    │   ├── Cache/
+    │   │   ├── InMemoryPresenceService.cs
+    │   │   └── InMemoryRateLimiter.cs
 │   └── Storage/
 │       └── S3BlobStorageClient.cs
 └── ChatHub.Tests/
@@ -451,10 +450,10 @@ Generate in this sequence — each phase depends on the previous:
 8. `MongoInitializer` (index setup on startup)
 9. `MessageRepository` and `ConversationRepository`
 10. `MongoWriterService` (background channel drain + NATS publish)
-11. `RedisPresenceService` and `RedisRateLimiter`
+11. `MongoDbPresenceService` and `MongoDbRateLimiter`
 12. `S3BlobStorageClient`
 13. `UploadController` (voice + file)
-14. Health check implementations (NATS, MongoDB, Redis)
+14. Health check implementations (NATS, MongoDB)
 15. `Program.cs` — full DI wiring and middleware pipeline
 16. Kubernetes YAML manifests (all 7 files)
 17. `nats-values.yaml` Helm override

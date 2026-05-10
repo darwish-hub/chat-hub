@@ -126,33 +126,14 @@ Start a live voice stream. Followed immediately by binary frames.
 
 ---
 
-### voice_message
-
-Send a pre-recorded voice message (already uploaded).
-
-```json
-{
-  "type": "voice_message",
-  "id": "uuid",
-  "conversationId": "string",
-  "blobId": "string",
-  "durationMs": 5000,
-  "mimeType": "audio/opus"
-}
-```
-
-**Fields**:
-- `id` (required): Message UUID
-- `conversationId` (required): Target conversation
-- `blobId` (required): Reference to uploaded voice file
-- `durationMs` (required): Audio length in milliseconds
-- `mimeType` (required): Audio format
-
----
-
 ### file_attachment
 
-Share a file in a conversation (already uploaded).
+Share an attachment in a conversation (already uploaded). Handles voice, video, images, and generic files.
+
+The server infers the message `type` from the MIME type:
+- `audio/*` → stored as `"voice"`
+- `video/*` → stored as `"video"`
+- everything else → stored as `"file"`
 
 ```json
 {
@@ -173,6 +154,7 @@ Share a file in a conversation (already uploaded).
 - `fileName` (required): Original filename
 - `mimeType` (required): File MIME type
 - `sizeBytes` (required): File size in bytes
+- `durationMs` (optional): Media duration in milliseconds (for audio/video files)
 
 ---
 
@@ -236,18 +218,14 @@ New message in a conversation.
     "conversationId": "string",
     "serviceId": "string",
     "senderId": "string",
-    "type": "text | voice | file",
+    "type": "text | voice | video | file",
     "text": "string | null",
-    "voice": {
-      "blobId": "string",
-      "durationMs": 5000,
-      "mimeType": "audio/opus"
-    } | null,
-    "file": {
+    "attachment": {
       "blobId": "string",
       "fileName": "string",
       "mimeType": "string",
-      "sizeBytes": 1024000
+      "sizeBytes": 1024000,
+      "durationMs": 5000
     } | null,
     "replyToId": "string | null",
     "createdAt": "2024-01-15T10:30:00Z"
@@ -380,8 +358,8 @@ Errors are sent as `error` messages with correlation ID matching the original me
 
 ## Rate Limits
 
-- **Text/file messages**: 100 per connection per minute
-- **Voice messages**: 10 per connection per minute
+- **Text/attachment messages**: 100 per connection per minute
+- **Live voice streams**: 10 per connection per minute
 
 Exceeding limits returns `error` with code `rate_limit_exceeded`.
 

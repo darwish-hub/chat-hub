@@ -20,14 +20,17 @@ public class WebSocketConnection : IWebSocketConnection, IDisposable
     public WebSocket WebSocket { get; }
     public DateTime ConnectedAt { get; }
     public DateTime LastPongAt { get; private set; }
+    public string? CurrentServiceId { get; set; }
     public HashSet<string> JoinedServices { get; } = new();
     public CancellationToken ConnectionToken => _cts.Token;
-    
+    public CancellationTokenSource Cts => _cts;
+
     public WebSocketConnection(
         string connectionId,
         string userId,
         ClaimsPrincipal user,
-        WebSocket webSocket)
+        WebSocket webSocket,
+        CancellationTokenSource? cts = null)
     {
         ConnectionId = connectionId;
         UserId = userId;
@@ -35,14 +38,14 @@ public class WebSocketConnection : IWebSocketConnection, IDisposable
         WebSocket = webSocket;
         ConnectedAt = DateTime.UtcNow;
         LastPongAt = DateTime.UtcNow;
-        
+
         _sendChannel = Channel.CreateUnbounded<SendItem>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false
         });
-        
-        _cts = new CancellationTokenSource();
+
+        _cts = cts ?? new CancellationTokenSource();
         _sendTask = RunSendLoopAsync();
     }
     

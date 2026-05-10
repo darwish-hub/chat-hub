@@ -23,7 +23,7 @@ Enable users to see which users are currently online and available, and receive 
 ## Functional Requirements
 
 - **FR-P001**: User online status MUST be tracked per service
-- **FR-P002**: Presence MUST be stored in Redis with 2-minute expiry
+- **FR-P002**: Presence MUST be stored in MongoDB with 2-minute TTL expiry
 - **FR-P003**: User join/leave events MUST be broadcast to service participants
 - **FR-P004**: Typing indicators MUST be sent when a user starts/stops typing
 - **FR-P005**: Typing indicators MUST include debouncing (e.g., stop after 3 seconds of inactivity)
@@ -36,7 +36,7 @@ Enable users to see which users are currently online and available, and receive 
 - **SC-P002**: Online users list is accurate (false positives < 1%)
 - **SC-P003**: Typing indicators appear within 500ms of user typing
 - **SC-P004**: Typing indicators clear within 5 seconds of inactivity
-- **SC-P005**: Presence data is memory-efficient (uses Redis TTL)
+- **SC-P005**: Presence data is memory-efficient (uses MongoDB TTL index)
 
 ## Technical Implementation
 
@@ -44,10 +44,10 @@ Enable users to see which users are currently online and available, and receive 
 
 ```
 User Joins:
-Client → join_service → Handler → Redis (presence) → NATS → Broadcast
+Client → join_service → Handler → MongoDB (presence) → NATS → Broadcast
 
 User Leaves:
-Client → leave_service/disconnect → Handler → Redis → NATS → Broadcast
+Client → leave_service/disconnect → Handler → MongoDB → NATS → Broadcast
 
 Typing:
 Client → typing (isTyping: true) → Handler → Debounce → NATS → Broadcast
@@ -56,7 +56,7 @@ Client → typing (isTyping: true) → Handler → Debounce → NATS → Broadca
 
 ### Components
 
-1. **RedisPresenceService** - Already implemented in Phase 2
+1. **MongoDbPresenceService** - Already implemented in Phase 2
 2. **JoinServiceHandler** - Already implemented in Phase 3, needs presence update
 3. **TypingHandler** - New handler for typing indicators
 4. **PresenceController** - API endpoint for querying online users
@@ -135,7 +135,7 @@ Authorization: Bearer {token}
 
 ## Implementation Tasks
 
-- [X] T060 Create presence tracking in RedisPresenceService
+- [X] T060 Create presence tracking in MongoDbPresenceService
 - [X] T061 Implement UserJoined broadcasting on service join
 - [X] T062 Implement UserLeft broadcasting on service leave/disconnect
 - [X] T063 Create TypingHandler with debouncing

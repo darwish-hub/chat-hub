@@ -14,8 +14,7 @@
 │ displayName     │     │ participantIds[] │     │ senderId        │
 │ email           │     │ createdAt        │     │ type            │
 │ createdAt       │     │ lastMessageAt    │     │ text            │
-└─────────────────┘     └──────────────────┘     │ voice {blobId}  │
-                                                 │ file {blobId}   │
+└─────────────────┘     └──────────────────┘     │ attachment      │
 ┌─────────────────┐                              │ replyToId       │
 │   Connection    │                              │ createdAt       │
 ├─────────────────┤                              │ deliveredAt     │
@@ -91,17 +90,14 @@ A unit of communication (text, voice, or file).
 - `conversationId` (string): Reference to conversation
 - `serviceId` (string): Denormalized for querying
 - `senderId` (string): userId of sender
-- `type` (string enum): `"text" | "voice" | "file"`
+- `type` (string enum): `"text" | "voice" | "video" | "file"`
 - `text` (string | null): Text content (when type="text")
-- `voice` (object | null): Voice metadata (when type="voice")
-  - `blobId` (string): S3 object reference
-  - `durationMs` (int): Audio length in milliseconds
-  - `mimeType` (string): Audio format (e.g., "audio/opus")
-- `file` (object | null): File metadata (when type="file")
+- `attachment` (object | null): Unified attachment metadata (when type is "voice", "video", or "file")
   - `blobId` (string): S3 object reference
   - `fileName` (string): Original filename
-  - `mimeType` (string): File MIME type
+  - `mimeType` (string): MIME type
   - `sizeBytes` (int): File size
+  - `durationMs` (int | null): Media duration in milliseconds (audio/video only)
 - `replyToId` (string | null): Reference to parent message
 - `createdAt` (ISODate): Message timestamp
 - `deliveredAt` (ISODate | null): When all participants received
@@ -109,11 +105,15 @@ A unit of communication (text, voice, or file).
 **Validation Rules**:
 - `conversationId`: Required, valid conversation reference
 - `senderId`: Required, must be in conversation participantIds
-- `type`: Required, one of ["text", "voice", "file"]
-- Exactly one of `text`, `voice`, `file` must be non-null based on type
+- `type`: Required, one of ["text", "voice", "video", "file"]
+- Exactly one of `text` or `attachment` must be non-null based on type
 - `text` (if present): Required, max 10,000 chars
-- `voice.durationMs` (if present): Required, > 0, max 300,000 (5 min)
-- `file.sizeBytes` (if present): Required, > 0, max 104,857,600 (100 MB)
+- `attachment` (if present): Required
+  - `blobId`: Required
+  - `fileName`: Required, max 255 chars
+  - `mimeType`: Required, valid MIME type
+  - `sizeBytes`: Required, > 0, max 104,857,600 (100 MB)
+  - `durationMs`: Optional, > 0, max 3,600,000 (60 min)
 - `replyToId` (if present): Must reference existing message in same conversation
 
 **Indexes**:
@@ -209,7 +209,7 @@ Metadata for uploaded files stored in S3.
 |--------|----------------|----------|-------------------|
 | User | userId, displayName | N/A | userId |
 | Conversation | serviceId, participantIds | 500 participants | N/A |
-| Message | conversationId, senderId, type | 10KB text, 100MB file | N/A |
+| Message | conversationId, senderId, type | 10KB text, 100MB attachment | N/A |
 | Connection | userId, connectionId, podId | N/A | connectionId |
 | FileMetadata | blobId, fileName, mimeType | 100 MB | blobId |
 
@@ -219,3 +219,4 @@ Metadata for uploaded files stored in S3.
 2. **User conversations**: `db.conversations.find({ participantIds: "userId" }).sort({ lastMessageAt: -1 })`
 3. **Recent connections**: `db.connections.find({ userId: "..." }).sort({ connectedAt: -1 }).limit(10)`
 4. **Service activity**: `db.messages.find({ serviceId: "...", createdAt: { $gte: start } })`
+5. **Media messages**: `db.messages.find({ conversationId: "...", type: { $in: ["voice", "video", "file"] } }).sort({ createdAt: -1 })`

@@ -43,7 +43,7 @@ public class JoinServiceHandler : IJoinServiceHandler
         _logger.LogInformation("User {UserId} joined service {ServiceId} via connection {ConnectionId}",
             connection.UserId, message.ServiceId, connectionId);
 
-        // Track presence in Redis
+        // Track presence in memory
         await _presenceService.SetUserOnlineAsync(message.ServiceId, connection.UserId, connectionId, ct);
 
         // Broadcast user joined to other participants in the service

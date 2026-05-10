@@ -19,7 +19,6 @@ docker-compose up -d
 
 This starts:
 - **MongoDB** (port 27017) - Message persistence
-- **Redis** (port 6379) - Caching and presence
 - **NATS** (port 4222) - Cross-pod message fan-out
 - **MinIO** (port 9000/9001) - S3-compatible file storage
 
@@ -44,9 +43,6 @@ JWT_SIGNING_KEY=your-256-bit-secret-key-here
 
 # MongoDB
 MONGO_CONNECTION_STRING=mongodb://localhost:27017/chathub
-
-# Redis
-REDIS_CONNECTION_STRING=localhost:6379
 
 # NATS
 NATS_URL=nats://localhost:4222
@@ -203,7 +199,7 @@ docker-compose restart
 # Check logs
 docker-compose logs nats
 docker-compose logs mongo
-docker-compose logs redis
+
 ```
 
 ### WebSocket Authentication Failed
@@ -266,8 +262,7 @@ docker-compose exec mongo mongosh chathub --eval "db.messages.find().limit(5)"
 # Monitor NATS traffic
 docker-compose exec nats nats sub ">"
 
-# Check Redis keys
-docker-compose exec redis redis-cli KEYS '*'
+
 
 # Build Docker image
 docker build -t chathub-api:latest -f ChatHub.Api/Dockerfile .

@@ -24,12 +24,13 @@ Enable users to send voice messages in real-time, allowing other participants to
 
 - **FR-V001**: Users MUST be able to start a voice recording session with a unique message ID
 - **FR-V002**: Voice chunks MUST be streamed in real-time to other conversation participants
-- **FR-V003**: Voice chunks MUST be temporarily stored in Redis with sequence ordering
-- **FR-V004**: On recording completion, chunks MUST be assembled and uploaded to S3 storage
-- **FR-V005**: Voice metadata (duration, blob reference) MUST be persisted to MongoDB
-- **FR-V006**: Rate limiting MUST apply (10 voice messages per minute per connection)
+- **FR-V003**: Voice chunks MUST be temporarily stored in pod-local memory with sequence ordering
+- **FR-V004**: On recording completion, chunks MUST be assembled and uploaded to S3 storage as an attachment
+- **FR-V005**: Voice attachment metadata (duration, blob reference) MUST be persisted to MongoDB
+- **FR-V006**: Rate limiting MUST apply (10 live voice streams per minute per connection)
 - **FR-V007**: Voice chunks MUST use binary WebSocket frames for efficiency
 - **FR-V008**: Participants MUST receive voice chunks in correct sequence order
+- **FR-V009**: Pre-recorded voice files MUST be handled via the attachment upload flow (`POST /api/upload/file` + `file_attachment` message)
 
 ## Success Criteria
 
@@ -44,27 +45,38 @@ Enable users to send voice messages in real-time, allowing other participants to
 ### Data Flow
 
 ```
-Client (recording) → WebSocket → VoiceChunkHandler → Redis (sorted set)
+Live Streaming:
+Client (recording) → WebSocket → VoiceChunkHandler → Pod-local memory (sorted by sequence)
                                                         ↓
 Client (stop) → WebSocket → VoiceMessageHandler → Retrieve chunks → S3
                                                         ↓
-                                               MongoDB (metadata)
+                                               MongoDB (attachment metadata, type="voice")
                                                         ↓
                                                NATS (broadcast)
+
+Pre-recorded Voice:
+Client → POST /api/upload/file → S3 → blobId
+           ↓
+Client → WebSocket file_attachment → FileAttachmentHandler → MongoDB (type="voice")
+           ↓
+    NATS (broadcast)
 ```
 
 ### Components
 
-1. **VoiceChunkHandler** - Receives and forwards chunks, stores in Redis
-2. **VoiceMessageHandler** - Handles recording completion, assembles and uploads
-3. **VoiceSessionBuffer** - Redis-based chunk storage with sequence tracking
-4. **Binary Frame Handler** - WebSocket binary message processing
+1. **VoiceChunkHandler** - Receives and forwards chunks, stores in pod-local memory
+2. **VoiceMessageHandler** - Handles live recording completion, assembles and uploads to S3
+3. **VoiceSessionBuffer** - In-memory chunk storage with sequence tracking and TTL cleanup
+4. **VoiceSessionCleanupService** - Background service that purges abandoned voice sessions
+5. **FileAttachmentHandler** - Handles pre-recorded voice shared via `file_attachment` (audio MIME types stored as `type="voice"`)
+6. **Binary Frame Handler** - WebSocket binary message processing
 
 ### Files to Create/Modify
 
 - `ChatHub.Api/Handlers/VoiceChunkHandler.cs`
 - `ChatHub.Api/Handlers/VoiceMessageHandler.cs`
-- `ChatHub.Infrastructure/Cache/VoiceSessionBuffer.cs`
+- `ChatHub.Infrastructure/Cache/VoiceSessionBuffer.cs` (in-memory)
+- `ChatHub.Infrastructure/Cache/VoiceSessionCleanupService.cs` (new)
 - `ChatHub.Api/Middleware/WebSocketMiddleware.cs` (binary frame support)
 
 ## Wire Protocol
@@ -111,17 +123,18 @@ Followed by binary frame with audio payload.
 
 ## Implementation Tasks
 
-- [X] T042 Create VoiceSessionBuffer for Redis chunk storage
-- [X] T043 Implement voice chunk storage in Redis sorted sets
+- [X] T042 Create VoiceSessionBuffer for in-memory chunk storage
+- [X] T043 Implement voice chunk storage in pod-local memory with sequence ordering
 - [X] T044 Create VoiceChunkHandler for live streaming
 - [X] T045 Implement binary frame parsing in receive loop
 - [X] T046 Implement immediate forwarding of voice chunks
 - [X] T047 Create VoiceMessageHandler for completed recordings
-- [X] T048 Implement voice assembly from Redis chunks
+- [X] T048 Implement voice assembly from in-memory chunks
 - [X] T049 Implement S3 upload for assembled voice
 - [X] T050 Implement MongoDB persistence for voice metadata
 - [X] T051 Create UploadController for pre-recorded voice uploads
 - [X] T052 Add voice file validation
+- [X] T053 Add VoiceSessionCleanupService to purge abandoned sessions
 
 ## Definition of Done
 

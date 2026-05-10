@@ -26,10 +26,10 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 ┌───────────────────────────▼────────────────────────────────┐
 │              Infrastructure Layer                           │
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐   │
-│  │   NATS      │  │   Redis     │  │   MongoDB        │   │
-│  │ (Backplane) │  │  (Cache)    │  │  (Source of      │   │
+│  │   NATS      │  │   MongoDB   │   │
+│  │ (Backplane) │  │  (Source of │   │
 │  │             │  │             │  │   Truth)         │   │
-│  └─────────────┘  └─────────────┘  └──────────────────┘   │
+│  └─────────────┘                  └──────────────────┘   │
 │         │                                        │          │
 │         └────────────────┬───────────────────────┘          │
 │                          │                                  │
@@ -58,7 +58,7 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 | WebSockets | System.Net.WebSockets |
 | Message Bus | NATS Core |
 | Database | MongoDB |
-| Cache | Redis |
+| Cache | MongoDB (presence/rate limit) + In-Memory (voice) |
 | Storage | S3 / MinIO |
 | Auth | JWT Bearer |
 | Deployment | Kubernetes |
@@ -76,7 +76,7 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 
 1. Start infrastructure services:
 ```bash
-docker-compose up -d mongodb redis nats minio
+docker-compose up -d mongodb nats minio
 ```
 
 2. Run the API:
@@ -204,7 +204,6 @@ ws://api.chathub.example.com/ws?token=YOUR_JWT_TOKEN
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MONGO_CONNECTION_STRING` | MongoDB connection string | `mongodb://localhost:27017/chathub` |
-| `REDIS_CONNECTION_STRING` | Redis connection string | `localhost:6379` |
 | `NATS_URL` | NATS server URL | `nats://localhost:4222` |
 | `S3_ENDPOINT` | S3/MinIO endpoint | `http://localhost:9000` |
 | `JWT_SIGNING_KEY` | JWT secret key | (required) |
@@ -266,7 +265,7 @@ ChatHub/
 │   ├── Models/               # Message models
 │   └── Settings/             # Configuration settings
 ├── ChatHub.Infrastructure/   # External service implementations
-│   ├── Cache/                # Redis implementations
+│   ├── Cache/                # In-memory cache implementations
 │   ├── Nats/                 # NATS backplane
 │   ├── Persistence/          # MongoDB repositories
 │   ├── Storage/              # S3/MinIO storage

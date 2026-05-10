@@ -1,5 +1,6 @@
 using ChatHub.Api.Handlers;
 using ChatHub.Core.Interfaces;
+using ChatHub.Core.Models;
 using ChatHub.Core.Settings;
 using ChatHub.Infrastructure.WebSockets;
 using Microsoft.AspNetCore.Authentication;
@@ -69,8 +70,7 @@ public class WebSocketMiddleware
             userId,
             user,
             webSocket,
-            cts,
-            DateTime.UtcNow
+            cts
         );
 
         _connectionRegistry.Register(connectionId, connection);

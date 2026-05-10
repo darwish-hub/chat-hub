@@ -16,7 +16,7 @@
 ## Path Conventions
 
 - `ChatHub.Core/` - Models, DTOs, interfaces, settings
-- `ChatHub.Infrastructure/` - WebSockets, NATS, MongoDB, Redis, S3 implementations
+- `ChatHub.Infrastructure/` - WebSockets, NATS, MongoDB, S3 implementations
 - `ChatHub.Api/` - Middleware, controllers, health checks
 - `ChatHub.Tests/` - Unit and integration tests
 - `k8s/` - Kubernetes manifests
@@ -29,9 +29,9 @@
 
 - [X] T001 Create solution structure with ChatHub.Core, ChatHub.Infrastructure, ChatHub.Api, ChatHub.Tests projects
 - [X] T002 [P] Initialize .NET 8 solution file and project references
-- [X] T003 [P] Add NuGet packages: MongoDB.Driver, NATS.Client, StackExchange.Redis, AWSSDK.S3
-- [X] T004 [P] Add test packages: xUnit, Testcontainers.MongoDb, Testcontainers.Redis, Microsoft.AspNetCore.TestHost
-- [X] T005 Create docker-compose.yml with MongoDB, Redis, NATS, MinIO services
+- [X] T003 [P] Add NuGet packages: MongoDB.Driver, NATS.Client, AWSSDK.S3
+- [X] T004 [P] Add test packages: xUnit, Testcontainers.MongoDb, Microsoft.AspNetCore.TestHost
+- [X] T005 Create docker-compose.yml with MongoDB, NATS, MinIO services
 - [X] T006 Create .env.example with configuration template
 
 ---
@@ -42,7 +42,7 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T007 [P] Create ChatHub.Core settings classes: ChatHubSettings.cs, MongoSettings.cs, NatsSettings.cs, RedisSettings.cs, StorageSettings.cs
+- [X] T007 [P] Create ChatHub.Core settings classes: ChatHubSettings.cs, MongoSettings.cs, NatsSettings.cs, StorageSettings.cs
 - [X] T008 [P] Create ChatHub.Core interfaces: IConnectionRegistry.cs, IWebSocketSender.cs, INatsBackplane.cs, IMessageDispatcher.cs
 - [X] T009 [P] Create ChatHub.Core interfaces: IMessageRepository.cs, IConversationRepository.cs, IBlobStorageClient.cs, IRateLimiter.cs
 - [X] T010 Create WebSocketConnection record in ChatHub.Infrastructure/WebSockets/WebSocketConnection.cs
@@ -57,14 +57,14 @@
 - [X] T019 Implement MessageRepository in ChatHub.Infrastructure/Persistence/MessageRepository.cs
 - [X] T020 Implement ConversationRepository in ChatHub.Infrastructure/Persistence/ConversationRepository.cs
 - [X] T021 Implement S3BlobStorageClient in ChatHub.Infrastructure/Storage/S3BlobStorageClient.cs
-- [X] T022 Implement RedisRateLimiter in ChatHub.Infrastructure/Cache/RedisRateLimiter.cs
-- [X] T023 Implement RedisPresenceService in ChatHub.Infrastructure/Cache/RedisPresenceService.cs
+- [X] T022 Implement MongoDbRateLimiter in ChatHub.Infrastructure/Cache/MongoDbRateLimiter.cs
+- [X] T023 Implement MongoDbPresenceService in ChatHub.Infrastructure/Cache/MongoDbPresenceService.cs
 - [X] T024 Create WebSocketMiddleware with handshake and connection management in ChatHub.Api/Middleware/WebSocketMiddleware.cs
 - [X] T025 Implement receive loop with frame handling in WebSocketMiddleware.cs
 - [X] T026 Implement heartbeat loop in WebSocketMiddleware.cs
 - [X] T027 Create IMessageDispatcher and IMessageHandler<T> pattern in ChatHub.Core/Interfaces/
 - [X] T028 Create MessageDispatcher implementation in ChatHub.Api/
-- [X] T029 Create health checks: MongoHealthCheck.cs, RedisHealthCheck.cs, NatsHealthCheck.cs in ChatHub.Api/HealthChecks/
+- [X] T029 Create health checks: MongoHealthCheck.cs, NatsHealthCheck.cs in ChatHub.Api/HealthChecks/
 - [X] T030 Wire up all services in ChatHub.Api/Program.cs with DI container
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
@@ -104,12 +104,12 @@
 ### Implementation for User Story 2
 
 - [X] T042 [P] [US2] Create VoiceSessionBuffer for chunk assembly in ChatHub.Infrastructure/Cache/VoiceSessionBuffer.cs
-- [X] T043 [US2] Implement voice chunk storage in Redis sorted sets in VoiceSessionBuffer.cs
+- [X] T043 [US2] Implement voice chunk storage in pod-local memory with sequence ordering in VoiceSessionBuffer.cs
 - [X] T044 [US2] Create VoiceChunk message handler for live streaming in ChatHub.Api/Handlers/VoiceChunkHandler.cs
 - [X] T045 [US2] Implement binary frame parsing for audio chunks in receive loop
 - [X] T046 [US2] Implement immediate forwarding of voice chunks to other participants in VoiceChunkHandler
 - [X] T047 [US2] Create VoiceMessage message handler for completed recordings in ChatHub.Api/Handlers/VoiceMessageHandler.cs
-- [X] T048 [US2] Implement voice assembly from Redis chunks in VoiceMessageHandler
+- [X] T048 [US2] Implement voice assembly from in-memory chunks in VoiceMessageHandler
 - [X] T049 [US2] Implement S3 upload for assembled voice in VoiceMessageHandler
 - [X] T050 [US2] Implement MongoDB persistence for voice message metadata in VoiceMessageHandler
 - [X] T051 [US2] Create UploadController for pre-recorded voice uploads in ChatHub.Api/Controllers/UploadController.cs
@@ -147,7 +147,7 @@
 
 ### Implementation for User Story 4
 
-- [X] T060 [P] [US4] Create presence tracking in Redis in ChatHub.Infrastructure/Cache/RedisPresenceService.cs
+- [X] T060 [P] [US4] Create presence tracking in MongoDB in ChatHub.Infrastructure/Cache/MongoDbPresenceService.cs
 - [X] T061 [US4] Implement UserJoined broadcasting on service join in JoinServiceHandler.cs
 - [X] T062 [US4] Implement UserLeft broadcasting on service leave/disconnect in ConnectionRegistry cleanup
 - [X] T063 [US4] Create Typing message handler in ChatHub.Api/Handlers/TypingHandler.cs
@@ -258,7 +258,7 @@
 
 ```bash
 # Launch all foundational models and interfaces together:
-Task: "Create ChatHub.Core settings classes: ChatHubSettings.cs, MongoSettings.cs, NatsSettings.cs, RedisSettings.cs, StorageSettings.cs"
+Task: "Create ChatHub.Core settings classes: ChatHubSettings.cs, MongoSettings.cs, NatsSettings.cs, StorageSettings.cs"
 Task: "Create ChatHub.Core interfaces: IConnectionRegistry.cs, IWebSocketSender.cs, INatsBackplane.cs, IMessageDispatcher.cs"
 Task: "Create ChatHub.Core interfaces: IMessageRepository.cs, IConversationRepository.cs, IBlobStorageClient.cs, IRateLimiter.cs"
 

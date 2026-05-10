@@ -14,47 +14,9 @@ Authorization: Bearer {jwt}
 
 ## Endpoints
 
-### Upload Voice File
+### Upload Attachment
 
-Upload a pre-recorded voice file for sharing via WebSocket.
-
-```
-POST /api/upload/voice
-```
-
-**Request**:
-- Content-Type: `multipart/form-data`
-- Max size: 25 MB
-
-**Form Fields**:
-- `file` (required): Audio file (Opus, MP3, WAV)
-
-**Response** (200 OK):
-```json
-{
-  "blobId": "uuid",
-  "fileName": "voice.opus",
-  "mimeType": "audio/opus",
-  "sizeBytes": 50000
-}
-```
-
-**Response Fields**:
-- `blobId`: Reference to use in `voice_message` WebSocket message
-- `fileName`: Sanitized filename
-- `mimeType`: Detected MIME type
-- `sizeBytes`: File size
-
-**Errors**:
-- `400 Bad Request`: File too large or invalid format
-- `401 Unauthorized`: Missing or invalid token
-- `413 Payload Too Large`: File exceeds 25 MB limit
-
----
-
-### Upload File Attachment
-
-Upload a file for sharing via WebSocket.
+Upload an attachment (file, voice, video, or image) for sharing via WebSocket.
 
 ```
 POST /api/upload/file
@@ -66,6 +28,7 @@ POST /api/upload/file
 
 **Form Fields**:
 - `file` (required): Any file type
+- `durationMs` (optional): Media duration in milliseconds (for audio/video files)
 
 **Response** (200 OK):
 ```json
@@ -74,6 +37,7 @@ POST /api/upload/file
   "fileName": "document.pdf",
   "mimeType": "application/pdf",
   "sizeBytes": 1024000,
+  "durationMs": null,
   "url": "https://storage.example.com/..."
 }
 ```
@@ -83,6 +47,7 @@ POST /api/upload/file
 - `fileName`: Sanitized filename
 - `mimeType`: Detected MIME type
 - `sizeBytes`: File size
+- `durationMs`: Media duration if provided, otherwise null
 - `url`: Pre-signed download URL (optional, may be null)
 
 **Errors**:
@@ -147,7 +112,6 @@ GET /health/ready
   "status": "ready",
   "checks": {
     "mongodb": "healthy",
-    "redis": "healthy",
     "nats": "healthy"
   }
 }
@@ -159,7 +123,6 @@ GET /health/ready
   "status": "not_ready",
   "checks": {
     "mongodb": "unhealthy",
-    "redis": "healthy",
     "nats": "healthy"
   }
 }
@@ -190,10 +153,9 @@ GET /api/conversations/{conversationId}/messages?before={timestamp}&limit={numbe
     {
       "id": "uuid",
       "senderId": "string",
-      "type": "text | voice | file",
+      "type": "text | voice | video | file",
       "text": "string | null",
-      "voice": { "blobId": "string", "durationMs": 5000, "mimeType": "string" } | null,
-      "file": { "blobId": "string", "fileName": "string", "mimeType": "string", "sizeBytes": 0 } | null,
+      "attachment": { "blobId": "string", "fileName": "string", "mimeType": "string", "sizeBytes": 0, "durationMs": 5000 } | null,
       "replyToId": "string | null",
       "createdAt": "2024-01-15T10:30:00Z"
     }

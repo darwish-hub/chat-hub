@@ -21,8 +21,8 @@ public class AckHandler : IMessageHandler<AckMessage>
     
     public async Task HandleAsync(string connectionId, AckMessage message, CancellationToken ct)
     {
-        await _messageRepository.MarkDeliveredAsync(message.MessageId, ct);
-        
+        await _messageRepository.UpdateDeliveredAtAsync(message.MessageId, DateTime.UtcNow, ct);
+
         _logger.LogDebug(
             "Message {MessageId} marked as delivered",
             message.MessageId);

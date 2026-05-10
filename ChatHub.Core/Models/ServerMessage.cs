@@ -26,7 +26,7 @@ public class MessageReceived : ServerMessage
     public MessageEnvelope Envelope { get; set; } = null!;
 }
 
-// MessageEnvelope, VoiceInfo, FileInfo are defined in separate files
+// MessageEnvelope and AttachmentInfo are defined in separate files
 
 public class VoiceChunkReceived : ServerMessage
 {

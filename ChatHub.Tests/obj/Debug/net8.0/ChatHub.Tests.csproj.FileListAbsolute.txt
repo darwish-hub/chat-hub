@@ -1,0 +1,7 @@
+D:\Study\chat-app\chat-hub\ChatHub.Tests\bin\Debug\net8.0\CoverletSourceRootsMapping_ChatHub.Tests
+D:\Study\chat-app\chat-hub\ChatHub.Tests\obj\Debug\net8.0\ChatHub.Tests.csproj.AssemblyReference.cache
+D:\Study\chat-app\chat-hub\ChatHub.Tests\obj\Debug\net8.0\ChatHub.Tests.GeneratedMSBuildEditorConfig.editorconfig
+D:\Study\chat-app\chat-hub\ChatHub.Tests\obj\Debug\net8.0\ChatHub.Tests.AssemblyInfoInputs.cache
+D:\Study\chat-app\chat-hub\ChatHub.Tests\obj\Debug\net8.0\ChatHub.Tests.AssemblyInfo.cs
+D:\Study\chat-app\chat-hub\ChatHub.Tests\obj\Debug\net8.0\ChatHub.Tests.csproj.CoreCompileInputs.cache
+D:\Study\chat-app\chat-hub\ChatHub.Tests\obj\Debug\net8.0\ChatHub.Tests.sourcelink.json
