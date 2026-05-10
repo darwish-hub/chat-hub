@@ -65,7 +65,7 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.O
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<StorageSettings>>().Value);
 
 // Add authentication
-var jwtKey = builder.Configuration.GetValue<string>("JWT_SIGNING_KEY", "your-256-bit-secret-key-here-change-in-production");
+var jwtKey = builder.Configuration.GetValue<string>("JWT_SIGNING_KEY", "qwertyuiopasdfghjklzxcvbnm123456");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -78,6 +78,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = builder.Configuration.GetValue<string>("JWT_ISSUER", "ChatHub"),
             ValidAudience = builder.Configuration.GetValue<string>("JWT_AUDIENCE", "ChatHub"),
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+        // Allow JWT from WebSocket query parameter (?token=...)
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                
+                var accessToken = context.Request.Query["token"];
+                Console.WriteLine(accessToken);
+                
+                if (!string.IsNullOrEmpty(accessToken))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -141,6 +157,29 @@ builder.Services.AddOpenTelemetry()
         // metrics.AddPrometheusExporter(); // TODO: requires OpenTelemetry.Exporter.Prometheus.AspNetCore stable package
     });
 
+// Add CORS
+var allowedOrigins = builder.Configuration.GetValue<string>("CHATHUB_ALLOWED_ORIGINS", "")?
+    .Split(',', StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("ChatHubCors", policy =>
+    {
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins);
+        }
+        else
+        {
+            policy.AllowAnyOrigin();
+        }
+        
+        policy.AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 // Add controllers
 builder.Services.AddControllers();
 
@@ -153,6 +192,8 @@ var app = builder.Build();
 
 // Configure middleware
 app.UseMiddleware<CorrelationIdMiddleware>();
+
+app.UseCors("ChatHubCors");
 
 app.UseWebSockets(new WebSocketOptions
 {

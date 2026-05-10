@@ -101,25 +101,11 @@ public class WebSocketMiddleware
         }
     }
 
-    private async Task<bool> ValidateTokenAsync(HttpContext context)
+    private Task<bool> ValidateTokenAsync(HttpContext context)
     {
-        var token = context.Request.Query["token"].FirstOrDefault();
-        
-        if (string.IsNullOrEmpty(token))
-        {
-            return false;
-        }
-
-        // Token validation should be done by JWT middleware
-        // Here we just check if authentication succeeded
-        var result = await context.AuthenticateAsync();
-        if (result.Succeeded)
-        {
-            context.User = result.Principal;
-            return true;
-        }
-
-        return false;
+        // UseAuthentication() already ran before this middleware.
+        // If the JWT was valid, context.User is set and IsAuthenticated is true.
+        return Task.FromResult(context.User.Identity?.IsAuthenticated == true);
     }
 
     private async Task ReceiveLoopAsync(WebSocketConnection connection)
