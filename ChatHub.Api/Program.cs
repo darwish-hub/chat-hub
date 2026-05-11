@@ -1,9 +1,12 @@
+using System.Security.Cryptography;
+using System.Text;
 using ChatHub.Api.Handlers;
 using ChatHub.Api.HealthChecks;
 using ChatHub.Api.Metrics;
 using ChatHub.Api.Middleware;
 using ChatHub.Core.Interfaces;
 using ChatHub.Core.Settings;
+using ChatHub.Infrastructure.Auth;
 using ChatHub.Infrastructure.Cache;
 using ChatHub.Infrastructure.Nats;
 using ChatHub.Infrastructure.Persistence;
@@ -12,8 +15,6 @@ using ChatHub.Infrastructure.WebSockets;
 using ChatHub.Infrastructure.Writers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using OpenTelemetry.Exporter.Prometheus;
-using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -63,31 +64,61 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.O
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MongoSettings>>().Value);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<NatsSettings>>().Value);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<StorageSettings>>().Value);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<JwtSettings>>().Value);
 
 // Add authentication
-var jwtKey = builder.Configuration.GetValue<string>("JWT_SIGNING_KEY", "qwertyuiopasdfghjklzxcvbnm123456");
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+var jwtSettings = new JwtSettings();
+builder.Configuration.GetSection("Jwt").Bind(jwtSettings);
+
+SecurityKey signingKey;
+if (string.Equals(jwtSettings.Algorithm, "RS256", StringComparison.OrdinalIgnoreCase)
+    && !string.IsNullOrWhiteSpace(jwtSettings.PublicKey))
+{
+    var pem = jwtSettings.PublicKey.Trim();
+    if (pem.StartsWith("-----BEGIN PUBLIC KEY-----"))
+    {
+        pem = pem
+            .Replace("-----BEGIN PUBLIC KEY-----", "")
+            .Replace("-----END PUBLIC KEY-----", "")
+            .Replace("\n", "")
+            .Replace("\r", "")
+            .Trim();
+    }
+    var keyBytes = Convert.FromBase64String(pem);
+    using var rsa = RSA.Create();
+    rsa.ImportSubjectPublicKeyInfo(keyBytes, out _);
+    signingKey = new RsaSecurityKey(rsa.ExportParameters(false)) { KeyId = "anat-rsa" };
+}
+else
+{
+    var key = jwtSettings.SigningKey ?? builder.Configuration.GetValue<string>("JWT_SIGNING_KEY") ?? "qwertyuiopasdfghjklzxcvbnm123456";
+    signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidateAudience = true,
+            ValidateAudience = jwtSettings.ValidateAudience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration.GetValue<string>("JWT_ISSUER", "ChatHub"),
-            ValidAudience = builder.Configuration.GetValue<string>("JWT_AUDIENCE", "ChatHub"),
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+            ValidIssuer = jwtSettings.Issuer,
+            IssuerSigningKey = signingKey,
+            ClockSkew = TimeSpan.FromSeconds(30)
         };
-        // Allow JWT from WebSocket query parameter (?token=...)
+
+        if (jwtSettings.ValidateAudience)
+        {
+            options.TokenValidationParameters.ValidAudience = jwtSettings.Audience;
+        }
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = context =>
             {
-                
                 var accessToken = context.Request.Query["token"];
-                Console.WriteLine(accessToken);
-                
                 if (!string.IsNullOrEmpty(accessToken))
                 {
                     context.Token = accessToken;
@@ -96,6 +127,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             }
         };
     });
+
+builder.Services.AddSingleton<IJwtValidator, JwtValidator>();
 
 // Add services
 builder.Services.AddSingleton<IConnectionRegistry, ConnectionRegistry>();

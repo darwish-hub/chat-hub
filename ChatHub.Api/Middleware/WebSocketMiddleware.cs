@@ -3,7 +3,6 @@ using ChatHub.Core.Interfaces;
 using ChatHub.Core.Models;
 using ChatHub.Core.Settings;
 using ChatHub.Infrastructure.WebSockets;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using System.Buffers;
 using System.Net.WebSockets;
@@ -21,6 +20,7 @@ public class WebSocketMiddleware
     private readonly IWebSocketSender _webSocketSender;
     private readonly IMessageDispatcher _messageDispatcher;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IJwtValidator _jwtValidator;
     private readonly ChatHubSettings _settings;
 
     public WebSocketMiddleware(
@@ -30,6 +30,7 @@ public class WebSocketMiddleware
         IWebSocketSender webSocketSender,
         IMessageDispatcher messageDispatcher,
         IServiceProvider serviceProvider,
+        IJwtValidator jwtValidator,
         IOptions<ChatHubSettings> settings)
     {
         _next = next;
@@ -38,6 +39,7 @@ public class WebSocketMiddleware
         _webSocketSender = webSocketSender;
         _messageDispatcher = messageDispatcher;
         _serviceProvider = serviceProvider;
+        _jwtValidator = jwtValidator;
         _settings = settings.Value;
     }
 
@@ -101,11 +103,34 @@ public class WebSocketMiddleware
         }
     }
 
-    private Task<bool> ValidateTokenAsync(HttpContext context)
+    private async Task<bool> ValidateTokenAsync(HttpContext context)
     {
-        // UseAuthentication() already ran before this middleware.
-        // If the JWT was valid, context.User is set and IsAuthenticated is true.
-        return Task.FromResult(context.User.Identity?.IsAuthenticated == true);
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            return true;
+        }
+
+        var token = context.Request.Query["token"].FirstOrDefault();
+        if (string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        var result = await _jwtValidator.ValidateAsync(token);
+        if (!result.IsValid)
+        {
+            _logger.LogWarning("JWT validation failed: {Error}", result.Error);
+            return false;
+        }
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, result.UserId!),
+            new Claim("sub", result.UserId!)
+        };
+        var identity = new ClaimsIdentity(claims, "JwtBearer");
+        context.User = new ClaimsPrincipal(identity);
+        return true;
     }
 
     private async Task ReceiveLoopAsync(WebSocketConnection connection)
