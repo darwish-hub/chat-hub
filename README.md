@@ -1,6 +1,6 @@
 # ChatHub - Real-Time Chat Service
 
-A high-performance real-time chat service built with .NET 8, featuring native WebSocket support, live voice messaging, file sharing, presence tracking, and message replies.
+A high-performance real-time chat service built with .NET 8, featuring native WebSocket support, live voice messaging, file sharing, presence tracking, delivery acknowledgments, and message replies.
 
 ## Architecture Overview
 
@@ -9,7 +9,7 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 │                        Clients                               │
 │  (WebSocket / REST API)                                     │
 └──────────────────────┬──────────────────────────────────────┘
-                       │ HTTPS/WSS
+                       │ HTTPS/WSS (JWT Auth)
 ┌──────────────────────▼──────────────────────────────────────┐
 │                    Kubernetes Cluster                        │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
@@ -26,27 +26,24 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 ┌───────────────────────────▼────────────────────────────────┐
 │              Infrastructure Layer                           │
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐   │
-│  │   NATS      │  │   MongoDB   │   │
-│  │ (Backplane) │  │  (Source of │   │
-│  │             │  │             │  │   Truth)         │   │
-│  └─────────────┘                  └──────────────────┘   │
-│         │                                        │          │
-│         └────────────────┬───────────────────────┘          │
-│                          │                                  │
-│                   ┌──────▼──────┐                          │
-│                   │  S3/MinIO   │                          │
-│                   │(File Store) │                          │
-│                   └─────────────┘                          │
+│  │   NATS      │  │   MongoDB   │  │  S3/MinIO        │   │
+│  │ (Backplane) │  │(Source of   │  │ (File Store)     │   │
+│  │             │  │   Truth)    │  │                  │   │
+│  └─────────────┘  └─────────────┘  └──────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Features
 
 - **Native WebSocket Protocol**: Full-duplex communication without SignalR overhead
-- **Live Voice Streaming**: Real-time audio chunks with buffering and assembly
-- **File Sharing**: Upload/download with streaming S3 storage
-- **Presence & Typing**: Online/offline status with typing indicators
+- **Live Voice Streaming**: Real-time binary audio chunks with in-memory buffering and assembly
+- **File Sharing**: Upload/download with streaming S3 storage (images, documents, audio, video)
+- **Presence & Typing**: Online/offline status per service with typing indicators
+- **Service Join/Leave**: Clients join/leave service channels for scoped message delivery
 - **Message Replies**: Thread-based conversations with reply context
+- **Delivery Acknowledgments**: Ack/delivered receipts for message confirmation
+- **Ping/Pong Heartbeat**: Connection health monitoring with idle timeout detection
+- **CORS Support**: Configurable allowed origins for cross-domain access
 - **Horizontal Scaling**: NATS backplane for cross-pod message delivery
 - **Kubernetes Ready**: Complete manifests with HPA, PDB, and health checks
 
@@ -58,9 +55,10 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 | WebSockets | System.Net.WebSockets |
 | Message Bus | NATS Core |
 | Database | MongoDB |
-| Cache | MongoDB (presence/rate limit) + In-Memory (voice) |
+| Presence/Rate Limit | MongoDB |
+| Voice Buffering | In-Memory (ConcurrentDictionary) |
 | Storage | S3 / MinIO |
-| Auth | JWT Bearer |
+| Auth | JWT Bearer (header + query string) |
 | Deployment | Kubernetes |
 | Metrics | OpenTelemetry + Prometheus |
 
@@ -74,20 +72,28 @@ A high-performance real-time chat service built with .NET 8, featuring native We
 
 ### Local Development
 
-1. Start infrastructure services:
+1. Copy environment configuration:
 ```bash
-docker-compose up -d mongodb nats minio
+cp .env.example .env
+# Edit .env with your settings (JWT_SIGNING_KEY is required)
 ```
 
-2. Run the API:
+2. Start infrastructure services:
+```bash
+docker-compose up -d mongo nats minio
+```
+
+3. Run the API:
 ```bash
 cd ChatHub.Api
 dotnet run
 ```
 
-3. Connect via WebSocket:
+The API starts at `http://localhost:5068` by default.
+
+4. Connect via WebSocket:
 ```javascript
-const ws = new WebSocket('ws://localhost:5123/ws?token=YOUR_JWT');
+const ws = new WebSocket('ws://localhost:5068/ws?token=YOUR_JWT');
 ws.onopen = () => console.log('Connected');
 ws.onmessage = (e) => console.log('Received:', e.data);
 ```
@@ -109,12 +115,30 @@ kubectl apply -f k8s/
 
 ### Authentication
 
-Include JWT token in query string:
+Include JWT token in the query string when connecting:
 ```
 ws://api.chathub.example.com/ws?token=YOUR_JWT_TOKEN
 ```
 
+The server sends periodic `ping` messages; clients must respond with `pong` to maintain the connection.
+
 ### Client → Server Messages
+
+**Join Service:**
+```json
+{
+  "type": "join_service",
+  "serviceId": "service-123"
+}
+```
+
+**Leave Service:**
+```json
+{
+  "type": "leave_service",
+  "serviceId": "service-123"
+}
+```
 
 **Text Message:**
 ```json
@@ -128,22 +152,67 @@ ws://api.chathub.example.com/ws?token=YOUR_JWT_TOKEN
 }
 ```
 
-**Voice Chunk (Live Streaming):**
+**Voice Chunk (Binary):**
 ```json
 {
   "type": "voice_chunk",
   "id": "session-uuid",
   "conversationId": "conv-123",
-  "chunkIndex": 0,
-  "isLast": false
+  "sequenceNumber": 0,
+  "isFinal": false
+}
+```
+Voice chunks are also sent as binary WebSocket frames for efficiency.
+
+**Voice Message (Complete):**
+```json
+{
+  "type": "voice_message",
+  "id": "msg-uuid",
+  "conversationId": "conv-123",
+  "blobId": "blob-id-from-upload",
+  "durationMs": 5000,
+  "mimeType": "audio/opus",
+  "replyToId": "optional-parent-msg-id"
 }
 ```
 
-**Join Service:**
+**File Attachment:**
 ```json
 {
-  "type": "join_service",
-  "serviceId": "service-123"
+  "type": "file_attachment",
+  "id": "msg-uuid",
+  "conversationId": "conv-123",
+  "blobId": "blob-id-from-upload",
+  "fileName": "photo.jpg",
+  "mimeType": "image/jpeg",
+  "sizeBytes": 102400,
+  "durationMs": null,
+  "replyToId": "optional-parent-msg-id"
+}
+```
+
+**Typing Indicator:**
+```json
+{
+  "type": "typing",
+  "conversationId": "conv-123",
+  "isTyping": true
+}
+```
+
+**Delivery Acknowledgment:**
+```json
+{
+  "type": "ack",
+  "messageId": "msg-uuid"
+}
+```
+
+**Pong (Heartbeat Response):**
+```json
+{
+  "type": "pong"
 }
 ```
 
@@ -155,11 +224,59 @@ ws://api.chathub.example.com/ws?token=YOUR_JWT_TOKEN
   "type": "message_received",
   "envelope": {
     "id": "msg-uuid",
+    "conversationId": "conv-123",
+    "serviceId": "service-123",
+    "senderId": "user-456",
     "type": "text",
     "text": "Hello, World!",
+    "attachment": null,
     "replyToId": "parent-msg-id",
     "createdAt": "2024-01-15T10:30:00Z"
   }
+}
+```
+
+The `envelope` includes an `attachment` field for voice/file messages:
+```json
+{
+  "attachment": {
+    "blobId": "blob-id",
+    "fileName": "voice.opus",
+    "mimeType": "audio/opus",
+    "sizeBytes": 20480,
+    "durationMs": 5000
+  }
+}
+```
+
+**Voice Chunk (Relayed):**
+```json
+{
+  "type": "voice_chunk",
+  "id": "session-uuid",
+  "conversationId": "conv-123",
+  "sequenceNumber": 0,
+  "isFinal": false,
+  "fromUserId": "user-456"
+}
+```
+
+**User Joined:**
+```json
+{
+  "type": "user_joined",
+  "userId": "user-456",
+  "serviceId": "service-123",
+  "displayName": "John"
+}
+```
+
+**User Left:**
+```json
+{
+  "type": "user_left",
+  "userId": "user-456",
+  "serviceId": "service-123"
 }
 ```
 
@@ -167,35 +284,92 @@ ws://api.chathub.example.com/ws?token=YOUR_JWT_TOKEN
 ```json
 {
   "type": "typing",
-  "userId": "user-123",
+  "userId": "user-456",
   "conversationId": "conv-123",
   "isTyping": true
 }
 ```
 
+**Delivery Receipt:**
+```json
+{
+  "type": "delivered",
+  "messageId": "msg-uuid"
+}
+```
+
+**Error:**
+```json
+{
+  "type": "error",
+  "code": "rate_limit_exceeded",
+  "message": "Rate limit exceeded",
+  "correlationId": "corr-id"
+}
+```
+
+**Ping (Heartbeat):**
+```json
+{
+  "type": "ping"
+}
+```
+
 ## REST API
+
+All REST endpoints require JWT Bearer authentication.
 
 ### Conversations
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /api/conversations | Create conversation |
-| GET | /api/conversations/{id}/messages | Get message history |
-| GET | /api/conversations/{id}/messages/{msgId}/replies | Get thread |
+| GET | /api/conversation | List user's conversations |
+| GET | /api/conversation/{id} | Get a single conversation |
+| POST | /api/conversation | Create a conversation |
+| GET | /api/conversation/{id}/messages | Get message history (paginated) |
+| GET | /api/conversation/{id}/messages/{msgId}/replies | Get message thread |
+
+**Create Conversation Request:**
+```json
+{
+  "serviceId": "service-123",
+  "title": "Optional title",
+  "participantIds": ["user-456", "user-789"]
+}
+```
+
+**Message History Query Parameters:**
+- `before` - DateTime cursor for pagination
+- `limit` - Max messages to return (default 50, max 100)
 
 ### Presence
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/services/{id}/online | List online users |
-| GET | /api/services/{id}/online/{userId} | Check user status |
+| GET | /api/services/{serviceId}/online | List online users in a service |
+| GET | /api/services/{serviceId}/online/{userId} | Check if a user is online |
 
 ### Files
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /api/files/upload | Upload file |
-| GET | /api/files/{blobId} | Download file |
+| POST | /api/upload/file | Upload a file (multipart/form-data) |
+| GET | /api/upload/download/{blobId} | Download a file (returns redirect to pre-signed URL or streams directly) |
+
+**Upload Request:** `multipart/form-data` with `file` field and optional `durationMs` field (for voice/video).
+
+**Upload Response:**
+```json
+{
+  "blobId": "generated-uuid",
+  "fileName": "photo.jpg",
+  "mimeType": "image/jpeg",
+  "sizeBytes": 102400,
+  "durationMs": null
+}
+```
+
+Maximum file size: 100 MB.
 
 ## Configuration
 
@@ -203,30 +377,46 @@ ws://api.chathub.example.com/ws?token=YOUR_JWT_TOKEN
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `JWT_SIGNING_KEY` | JWT signing key (required) | - |
+| `JWT_ISSUER` | JWT issuer | `ChatHub` |
+| `JWT_AUDIENCE` | JWT audience | `ChatHub` |
 | `MONGO_CONNECTION_STRING` | MongoDB connection string | `mongodb://localhost:27017/chathub` |
+| `MONGO_DATABASE_NAME` | MongoDB database name | `chathub` |
 | `NATS_URL` | NATS server URL | `nats://localhost:4222` |
+| `NATS_QUEUE_GROUP` | NATS queue group name | `chathub-hub` |
 | `S3_ENDPOINT` | S3/MinIO endpoint | `http://localhost:9000` |
-| `JWT_SIGNING_KEY` | JWT secret key | (required) |
-| `CHATHUB_RATE_LIMIT_TEXT_PER_MINUTE` | Text message rate limit | 100 |
-| `CHATHUB_RATE_LIMIT_VOICE_PER_MINUTE` | Voice message rate limit | 10 |
+| `S3_ACCESS_KEY` | S3 access key | `minioadmin` |
+| `S3_SECRET_KEY` | S3 secret key | `minioadmin` |
+| `S3_BUCKET` | S3 bucket name | `chathub-uploads` |
+| `S3_REGION` | S3 region | `us-east-1` |
+| `S3_FORCE_PATH_STYLE` | Force path-style S3 URLs | `true` |
+| `CHATHUB_MAX_MESSAGE_SIZE_BYTES` | Max WebSocket message size | `65536` (64 KB) |
+| `CHATHUB_PING_INTERVAL_SECONDS` | Ping interval for heartbeats | `15` |
+| `CHATHUB_IDLE_TIMEOUT_MINUTES` | Idle connection timeout | `30` |
+| `CHATHUB_RATE_LIMIT_TEXT_PER_MINUTE` | Text message rate limit | `100` |
+| `CHATHUB_RATE_LIMIT_VOICE_PER_MINUTE` | Voice message rate limit | `10` |
+| `CHATHUB_ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | `*` (any) |
+| `POD_ID` | Pod identifier for NATS queue group | `unknown` |
 
 ## Monitoring
 
 ### Health Checks
 
-- `/health` - Liveness probe
-- `/health/ready` - Readiness probe
+- `/healthz` - Liveness probe (MongoDB + NATS checks)
+- `/readyz` - Readiness probe
 
 ### Metrics
 
-Prometheus metrics exposed at `/metrics`:
+OpenTelemetry metrics exposed via the `ChatHub` meter:
 
-- `chathub_messages_sent` - Messages sent by users
-- `chathub_messages_received` - Messages received by users
-- `chathub_messages_latency` - Message delivery latency
-- `chathub_connections_established` - WebSocket connections opened
-- `chathub_connections_closed` - WebSocket connections closed
-- `chathub_connections_duration` - Connection duration
+| Metric | Description |
+|--------|-------------|
+| `chathub.messages.sent` | Messages sent by users |
+| `chathub.messages.received` | Messages received by users |
+| `chathub.messages.latency` | Message delivery latency (ms) |
+| `chathub.connections.established` | WebSocket connections opened |
+| `chathub.connections.closed` | WebSocket connections closed |
+| `chathub.connections.duration` | WebSocket connection duration (s) |
 
 ### Logging
 
@@ -240,42 +430,124 @@ Structured logging with correlation IDs:
 ### Unit Tests
 
 ```bash
-dotnet test ChatHub.Tests/Unit
+dotnet test ChatHub.Tests --filter "FullyQualifiedName~Unit"
 ```
 
 ### Integration Tests
 
 Requires running infrastructure services:
 ```bash
-dotnet test ChatHub.Tests/Integration
+docker-compose up -d mongo nats minio
+dotnet test ChatHub.Tests --filter "FullyQualifiedName~Integration"
 ```
 
 ## Project Structure
 
 ```
 ChatHub/
-├── ChatHub.Api/              # Web API & WebSocket handlers
-│   ├── Controllers/          # REST API controllers
-│   ├── Handlers/             # WebSocket message handlers
-│   ├── Middleware/           # HTTP middleware
-│   └── Program.cs            # Application entry point
-├── ChatHub.Core/             # Domain models & interfaces
-│   ├── Documents/            # MongoDB documents
-│   ├── Interfaces/           # Repository & service interfaces
-│   ├── Models/               # Message models
-│   └── Settings/             # Configuration settings
-├── ChatHub.Infrastructure/   # External service implementations
-│   ├── Cache/                # In-memory cache implementations
-│   ├── Nats/                 # NATS backplane
-│   ├── Persistence/          # MongoDB repositories
-│   ├── Storage/              # S3/MinIO storage
-│   ├── WebSockets/           # WebSocket management
-│   └── Writers/              # Channel-based writers
-├── ChatHub.Tests/            # Test projects
-│   ├── Integration/          # Integration tests
-│   └── Unit/                 # Unit tests
-├── k8s/                      # Kubernetes manifests
-└── specs/                    # Specifications
+├── ChatHub.Api/                  # Web API & WebSocket handlers
+│   ├── Controllers/
+│   │   ├── ConversationController.cs
+│   │   ├── PresenceController.cs
+│   │   └── UploadController.cs
+│   ├── Handlers/                  # IMessageHandler<T> implementations
+│   │   ├── AckHandler.cs
+│   │   ├── DeliveredHandler.cs
+│   │   ├── FileAttachmentHandler.cs
+│   │   ├── JoinServiceHandler.cs
+│   │   ├── LeaveServiceHandler.cs
+│   │   ├── PongHandler.cs
+│   │   ├── TextMessageHandler.cs
+│   │   ├── TypingHandler.cs
+│   │   ├── VoiceChunkHandler.cs
+│   │   └── VoiceMessageHandler.cs
+│   ├── HealthChecks/
+│   │   ├── MongoHealthCheck.cs
+│   │   └── NatsHealthCheck.cs
+│   ├── Metrics/
+│   │   └── ChatMetrics.cs
+│   ├── Middleware/
+│   │   ├── CorrelationIdMiddleware.cs
+│   │   ├── WebSocketLoggingMiddleware.cs
+│   │   └── WebSocketMiddleware.cs
+│   ├── MessageDispatcher.cs
+│   └── Program.cs
+├── ChatHub.Core/                 # Domain models & interfaces
+│   ├── Documents/
+│   │   ├── ConnectionDocument.cs
+│   │   ├── ConversationDocument.cs
+│   │   ├── MessageDocument.cs
+│   │   ├── PresenceDocument.cs
+│   │   └── RateLimitDocument.cs
+│   ├── Interfaces/
+│   │   ├── IBlobStorageClient.cs
+│   │   ├── IConnectionRegistry.cs
+│   │   ├── IConversationRepository.cs
+│   │   ├── IJwtValidator.cs
+│   │   ├── IMessageDispatcher.cs
+│   │   ├── IMessageRepository.cs
+│   │   ├── INatsBackplane.cs
+│   │   ├── IPresenceService.cs
+│   │   ├── IRateLimiter.cs
+│   │   ├── IVoiceSessionBuffer.cs
+│   │   ├── IWebSocketConnection.cs
+│   │   └── IWebSocketSender.cs
+│   ├── Models/
+│   │   ├── ClientMessage.cs
+│   │   ├── MessageEnvelope.cs
+│   │   └── ServerMessage.cs
+│   └── Settings/
+│       ├── ChatHubSettings.cs
+│       ├── JwtSettings.cs
+│       ├── MongoSettings.cs
+│       ├── NatsSettings.cs
+│       └── StorageSettings.cs
+├── ChatHub.Infrastructure/       # External service implementations
+│   ├── Auth/
+│   │   └── JwtValidator.cs
+│   ├── Cache/
+│   │   ├── MongoDbPresenceService.cs
+│   │   ├── MongoDbRateLimiter.cs
+│   │   ├── VoiceSessionBuffer.cs
+│   │   └── VoiceSessionCleanupService.cs
+│   ├── Nats/
+│   │   ├── NatsBackplane.cs
+│   │   └── NatsSubscriberService.cs
+│   ├── Persistence/
+│   │   ├── ConversationRepository.cs
+│   │   ├── MessageRepository.cs
+│   │   └── MongoInitializer.cs
+│   ├── Storage/
+│   │   └── S3BlobStorageClient.cs
+│   ├── WebSockets/
+│   │   ├── ConnectionRegistry.cs
+│   │   ├── WebSocketConnection.cs
+│   │   └── WebSocketSender.cs
+│   └── Writers/
+│       └── MongoWriterService.cs
+├── ChatHub.Tests/                 # Test projects
+│   ├── Integration/
+│   │   ├── MongoTests.cs
+│   │   ├── NatsTests.cs
+│   │   └── WebSocketTests.cs
+│   └── Unit/
+│       ├── Handlers/
+│       │   └── MessageSerializationTests.cs
+│       └── WebSockets/
+│           └── ConnectionRegistryTests.cs
+├── k8s/                           # Kubernetes manifests
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── nats-values.yaml
+│   ├── pdb.yaml
+│   ├── secret.yaml
+│   └── service.yaml
+├── docker-compose.yml
+├── Dockerfile
+├── .env.example
+└── specs/                         # Specifications
 ```
 
 ## License
