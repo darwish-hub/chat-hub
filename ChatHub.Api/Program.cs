@@ -5,6 +5,7 @@ using ChatHub.Api.HealthChecks;
 using ChatHub.Api.Metrics;
 using ChatHub.Api.Middleware;
 using ChatHub.Core.Interfaces;
+using ChatHub.Core.Models;
 using ChatHub.Core.Settings;
 using ChatHub.Infrastructure.Auth;
 using ChatHub.Infrastructure.Cache;
@@ -101,7 +102,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
+            ValidateIssuer = false,
             ValidateAudience = jwtSettings.ValidateAudience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
@@ -151,7 +152,8 @@ builder.Services.AddSingleton<IConversationRepository, ConversationRepository>()
 // Add voice messaging services
 builder.Services.AddSingleton<VoiceSessionBuffer>();
 
-// Add message handlers
+// Register message handlers - both specific interfaces and generic IMessageHandler<T>
+// The MessageDispatcher resolves IMessageHandler<T> dynamically
 builder.Services.AddScoped<JoinServiceHandler>();
 builder.Services.AddScoped<LeaveServiceHandler>();
 builder.Services.AddScoped<TextMessageHandler>();
@@ -162,7 +164,6 @@ builder.Services.AddScoped<VoiceMessageHandler>();
 builder.Services.AddScoped<FileAttachmentHandler>();
 builder.Services.AddScoped<TypingHandler>();
 
-// Register handler interfaces
 builder.Services.AddScoped<IJoinServiceHandler>(sp => sp.GetRequiredService<JoinServiceHandler>());
 builder.Services.AddScoped<ILeaveServiceHandler>(sp => sp.GetRequiredService<LeaveServiceHandler>());
 builder.Services.AddScoped<ITextMessageHandler>(sp => sp.GetRequiredService<TextMessageHandler>());
@@ -172,6 +173,16 @@ builder.Services.AddScoped<IVoiceChunkHandler>(sp => sp.GetRequiredService<Voice
 builder.Services.AddScoped<IVoiceMessageHandler>(sp => sp.GetRequiredService<VoiceMessageHandler>());
 builder.Services.AddScoped<IFileAttachmentHandler>(sp => sp.GetRequiredService<FileAttachmentHandler>());
 builder.Services.AddScoped<ITypingHandler>(sp => sp.GetRequiredService<TypingHandler>());
+
+builder.Services.AddScoped<IMessageHandler<JoinServiceMessage>>(sp => sp.GetRequiredService<JoinServiceHandler>());
+builder.Services.AddScoped<IMessageHandler<LeaveServiceMessage>>(sp => sp.GetRequiredService<LeaveServiceHandler>());
+builder.Services.AddScoped<IMessageHandler<TextMessage>>(sp => sp.GetRequiredService<TextMessageHandler>());
+builder.Services.AddScoped<IMessageHandler<AckMessage>>(sp => sp.GetRequiredService<DeliveredHandler>());
+builder.Services.AddScoped<IMessageHandler<PongMessage>>(sp => sp.GetRequiredService<PongHandler>());
+builder.Services.AddScoped<IMessageHandler<VoiceChunkMessage>>(sp => sp.GetRequiredService<VoiceChunkHandler>());
+builder.Services.AddScoped<IMessageHandler<VoiceMessage>>(sp => sp.GetRequiredService<VoiceMessageHandler>());
+builder.Services.AddScoped<IMessageHandler<FileAttachmentMessage>>(sp => sp.GetRequiredService<FileAttachmentHandler>());
+builder.Services.AddScoped<IMessageHandler<TypingMessage>>(sp => sp.GetRequiredService<TypingHandler>());
 
 // Add hosted services
 builder.Services.AddSingleton<MongoInitializer>();

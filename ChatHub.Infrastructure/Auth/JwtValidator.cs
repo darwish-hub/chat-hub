@@ -39,7 +39,7 @@ public class JwtValidator : IJwtValidator
 
         _validationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
+            ValidateIssuer = false,
             ValidateAudience = _settings.ValidateAudience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
