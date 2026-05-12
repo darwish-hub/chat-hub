@@ -40,6 +40,31 @@ public class ConversationController : ControllerBase
         return Ok(conversations);
     }
 
+    [HttpGet("available")]
+    public async Task<ActionResult<IEnumerable<ConversationDocument>>> GetAvailableConversations(
+        [FromQuery] string? serviceId,
+        CancellationToken ct)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        IEnumerable<ConversationDocument> conversations;
+        if (!string.IsNullOrEmpty(serviceId))
+        {
+            conversations = await _conversationRepository.GetByServiceAsync(serviceId, ct);
+        }
+        else
+        {
+            conversations = await _conversationRepository.GetAllAsync(ct);
+        }
+
+        var available = conversations.Where(c => !c.ParticipantIds.Contains(userId)).ToList();
+        return Ok(available);
+    }
+
     [HttpGet("{conversationId}")]
     public async Task<ActionResult<ConversationDocument>> GetConversation(
         string conversationId,
@@ -113,6 +138,70 @@ public class ConversationController : ControllerBase
             nameof(GetConversation),
             new { conversationId = conversation.Id },
             conversation);
+    }
+
+    [HttpPost("{conversationId}/participants")]
+    public async Task<ActionResult> AddParticipants(
+        string conversationId,
+        [FromBody] AddParticipantsRequest request,
+        CancellationToken ct)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        if (request.UserIds == null || request.UserIds.Count == 0)
+        {
+            return BadRequest(new { error = "UserIds are required" });
+        }
+
+        var conversation = await _conversationRepository.GetByIdAsync(conversationId, ct);
+        if (conversation == null)
+        {
+            return NotFound();
+        }
+
+        if (!conversation.ParticipantIds.Contains(userId))
+        {
+            return Forbid();
+        }
+
+        await _conversationRepository.AddParticipantsAsync(conversationId, request.UserIds, ct);
+
+        _logger.LogInformation("Added participants {UserIds} to conversation {ConversationId} by user {UserId}",
+            string.Join(",", request.UserIds), conversationId, userId);
+
+        return Ok();
+    }
+
+    [HttpPost("{conversationId}/join")]
+    public async Task<ActionResult> JoinConversation(
+        string conversationId,
+        CancellationToken ct)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        var conversation = await _conversationRepository.GetByIdAsync(conversationId, ct);
+        if (conversation == null)
+        {
+            return NotFound();
+        }
+
+        var joined = await _conversationRepository.JoinConversationAsync(conversationId, userId, ct);
+        if (!joined)
+        {
+            return BadRequest(new { error = "Already a participant or could not join" });
+        }
+
+        _logger.LogInformation("User {UserId} joined conversation {ConversationId}", userId, conversationId);
+
+        return Ok(conversation);
     }
 
     [HttpGet("{conversationId}/messages")]
@@ -247,6 +336,11 @@ public class CreateConversationRequest
     public string ServiceId { get; set; } = null!;
     public string? Title { get; set; }
     public List<string> ParticipantIds { get; set; } = new();
+}
+
+public class AddParticipantsRequest
+{
+    public List<string> UserIds { get; set; } = new();
 }
 
 public class MessageHistoryResponse

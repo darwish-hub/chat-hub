@@ -34,6 +34,14 @@ public class ConversationRepository : IConversationRepository
             .ToListAsync(ct);
     }
 
+    public async Task<IEnumerable<ConversationDocument>> GetAllAsync(CancellationToken ct = default)
+    {
+        return await _collection
+            .Find(_ => true)
+            .SortByDescending(c => c.LastMessageAt)
+            .ToListAsync(ct);
+    }
+
     public async Task InsertAsync(ConversationDocument conversation, CancellationToken ct = default)
     {
         await _collection.InsertOneAsync(conversation, cancellationToken: ct);
@@ -52,5 +60,25 @@ public class ConversationRepository : IConversationRepository
             c => c.Id == conversationId && c.ParticipantIds.Contains(userId),
             cancellationToken: ct);
         return count > 0;
+    }
+
+    public async Task AddParticipantsAsync(string conversationId, IEnumerable<string> userIds, CancellationToken ct = default)
+    {
+        var filter = Builders<ConversationDocument>.Filter.Eq(c => c.Id, conversationId);
+        var update = Builders<ConversationDocument>.Update.AddToSetEach(c => c.ParticipantIds, userIds);
+        await _collection.UpdateOneAsync(filter, update, cancellationToken: ct);
+    }
+
+    public async Task<bool> JoinConversationAsync(string conversationId, string userId, CancellationToken ct = default)
+    {
+        var filter = Builders<ConversationDocument>.Filter.And(
+            Builders<ConversationDocument>.Filter.Eq(c => c.Id, conversationId),
+            Builders<ConversationDocument>.Filter.Not(
+                Builders<ConversationDocument>.Filter.AnyEq(c => c.ParticipantIds, userId)
+            )
+        );
+        var update = Builders<ConversationDocument>.Update.AddToSet(c => c.ParticipantIds, userId);
+        var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: ct);
+        return result.ModifiedCount > 0;
     }
 }

@@ -10,12 +10,10 @@ public class MongoWriterService : BackgroundService
 {
     private readonly Channel<MessageDocument> _messageChannel;
     private readonly IMessageRepository _messageRepository;
-    private readonly INatsBackplane _natsBackplane;
     private readonly ILogger<MongoWriterService> _logger;
 
     public MongoWriterService(
         IMessageRepository messageRepository,
-        INatsBackplane natsBackplane,
         ILogger<MongoWriterService> logger)
     {
         _messageChannel = Channel.CreateUnbounded<MessageDocument>(new UnboundedChannelOptions
@@ -24,7 +22,6 @@ public class MongoWriterService : BackgroundService
             SingleWriter = false
         });
         _messageRepository = messageRepository;
-        _natsBackplane = natsBackplane;
         _logger = logger;
     }
 
@@ -36,21 +33,16 @@ public class MongoWriterService : BackgroundService
 
         await foreach (var message in _messageChannel.Reader.ReadAllAsync(stoppingToken))
         {
+            _logger.LogDebug("MongoWriterService: Received message {MessageId} from channel", message.Id);
             try
             {
-                // Persist to MongoDB first (source of truth)
                 await _messageRepository.InsertAsync(message, stoppingToken);
-                _logger.LogDebug("Message {MessageId} persisted to MongoDB", message.Id);
-
-                // Then publish to NATS for cross-pod fan-out
-                var subject = $"chathub.{message.ServiceId}.messages";
-                var payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(message);
-                await _natsBackplane.PublishAsync(subject, payload, stoppingToken);
-                _logger.LogDebug("Message {MessageId} published to NATS subject {Subject}", message.Id, subject);
+                _logger.LogInformation("MongoWriterService: Message {MessageId} persisted to MongoDB (conversation={ConversationId}, sender={SenderId})",
+                    message.Id, message.ConversationId, message.SenderId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing message {MessageId}", message.Id);
+                _logger.LogError(ex, "MongoWriterService: Error persisting message {MessageId} - {ErrorMessage}", message.Id, ex.Message);
             }
         }
 

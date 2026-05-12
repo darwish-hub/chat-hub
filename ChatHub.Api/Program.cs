@@ -138,7 +138,8 @@ builder.Services.AddSingleton<INatsBackplane>(sp =>
 {
     var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<NatsSettings>>().Value;
     var chatHubSettings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ChatHubSettings>>().Value;
-    return new NatsBackplane(settings, chatHubSettings.PodId);
+    var logger = sp.GetRequiredService<ILogger<NatsBackplane>>();
+    return new NatsBackplane(settings, chatHubSettings.PodId, logger);
 });
 builder.Services.AddSingleton<IMessageDispatcher, MessageDispatcher>();
 

@@ -191,6 +191,7 @@ public class WebSocketMiddleware
     {
         try
         {
+            _logger.LogDebug("WebSocket: Received text message from connection {ConnectionId}, {ByteCount} bytes", connectionId, json.Length);
             var message = JsonSerializer.Deserialize<ClientMessage>(json, new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -198,28 +199,35 @@ public class WebSocketMiddleware
 
             if (message != null)
             {
+                _logger.LogDebug("WebSocket: Dispatching message type {MessageType} from connection {ConnectionId}", message.Type, connectionId);
                 await _messageDispatcher.DispatchAsync(connectionId, message, CancellationToken.None);
+                _logger.LogDebug("WebSocket: Dispatched message type {MessageType} from connection {ConnectionId}", message.Type, connectionId);
+            }
+            else
+            {
+                _logger.LogWarning("WebSocket: Failed to deserialize message from connection {ConnectionId}", connectionId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error despatching message from connection {ConnectionId}", connectionId);
+            _logger.LogError(ex, "WebSocket: Error despatching message from connection {ConnectionId} - {ErrorMessage}", connectionId, ex.Message);
         }
     }
 
     private async Task HandleBinaryDataAsync(string connectionId, ReadOnlyMemory<byte> data)
     {
+        _logger.LogDebug("WebSocket: Received binary data from connection {ConnectionId}, size: {Size} bytes", connectionId, data.Length);
         // Handle binary data (voice chunks)
         // Get VoiceChunkHandler from service provider
         var voiceChunkHandler = _serviceProvider.GetService(typeof(VoiceChunkHandler)) as VoiceChunkHandler;
-        
+
         if (voiceChunkHandler != null)
         {
             await voiceChunkHandler.HandleBinaryDataAsync(connectionId, data.ToArray(), CancellationToken.None);
         }
         else
         {
-            _logger.LogDebug("Binary data received for connection {ConnectionId}, size: {Size} bytes - no handler", 
+            _logger.LogDebug("WebSocket: Binary data received for connection {ConnectionId}, size: {Size} bytes - no handler",
                 connectionId, data.Length);
         }
     }
