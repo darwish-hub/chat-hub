@@ -9,8 +9,8 @@ Build a high-performance real-time chat service with native WebSockets, NATS Cor
 
 ## Technical Context
 
-**Language/Version**: .NET 8+ with C# 12  
-**Primary Dependencies**: 
+**Language/Version**: .NET 8+ with C# 12
+**Primary Dependencies**:
 - ASP.NET Core native WebSocket middleware
 - NATS core .NET client
 - MongoDB official .NET driver
@@ -24,7 +24,7 @@ Build a high-performance real-time chat service with native WebSockets, NATS Cor
 
 **Project Type**: Web service with real-time communication capabilities
 
-**Performance Goals**: 
+**Performance Goals**:
 - Message delivery < 1 second (99% of cases)
 - Voice streaming latency < 500ms
 - Support 10,000 concurrent connections
@@ -37,6 +37,46 @@ Build a high-performance real-time chat service with native WebSockets, NATS Cor
 - Background services must use Channel-based queuing
 
 **Scale/Scope**: Multi-pod deployment with cross-pod message fan-out, 3-20 replicas, 3-node NATS cluster
+
+## Known Issues Fixed
+
+### Message Delivery Bug (Fixed 2026-05-12)
+- **Symptom**: Messages were saved to MongoDB but not received by other users
+- **Root Cause**: Web client only passed `[myUserId]` when creating conversations, excluding other participants
+- **Fix**: Modified web client to prompt for participant IDs on conversation creation, added "Browse Conversations" feature
+- **Related Files**:
+  - `ChatHub.Api/Controllers/ConversationController.cs` - Added `JoinConversation` and `GetAvailableConversations` endpoints
+  - `ChatHub.Core/Interfaces/IConversationRepository.cs` - Added `JoinConversationAsync`
+  - `ChatHub.Infrastructure/Persistence/ConversationRepository.cs` - Implemented join functionality
+
+### Message Received Frame Validation Bug (Fixed 2026-05-12)
+- **Symptom**: `Invalid frame structure, discarding: message_received` in web client logs
+- **Root Cause**: `parseTextFrame` unwrapped `frame.envelope` into flat fields, but `validateServerFrame` still checked for `frame.envelope`
+- **Fix**: Updated validator in `parsers.js` to validate flat structure after unwrapping
+
+### JWT User ID Field (Updated 2026-05-12)
+- **Change**: Web client now uses `nid` (National ID) field from JWT payload, falling back to `sub` if not present
+- **Related Files**:
+  - `chat-client-web/src/ui/MessageList.jsx` - Updated user ID extraction
+
+### Conversation Creation & Joining Flow
+
+**Problem**: Users needed a way to create conversations with multiple participants and join existing ones.
+
+**Solution**:
+1. **Create Conversation**: User enters title and comma-separated participant IDs (including their own)
+2. **Browse Conversations**: GET `/api/conversation/available` returns all conversations in a service
+3. **Join Conversation**: POST `/api/conversation/{id}/join` adds user to conversation participants
+
+**REST API Endpoints**:
+- `GET /api/conversation/available?serviceId={serviceId}` - List available conversations
+- `POST /api/conversation/{id}/join` - Join a conversation
+- `POST /api/conversation` - Create new conversation (existing)
+
+**Key Files**:
+- `ChatHub.Api/Controllers/ConversationController.cs` - Added JoinConversation and GetAvailableConversations
+- `ChatHub.Core/Interfaces/IConversationRepository.cs` - Added GetAllAsync, JoinConversationAsync
+- `ChatHub.Infrastructure/Persistence/ConversationRepository.cs` - Implemented new repository methods
 
 ## Constitution Check
 
@@ -96,13 +136,14 @@ ChatHub.sln
 │   │   └── WebSocketMiddleware.cs
 │   ├── Handlers/                      # IMessageHandler<T> implementations
 │   ├── Controllers/
-│   │   └── UploadController.cs
+│   │   ├── UploadController.cs
+│   │   └── ConversationController.cs   # REST API for conversations
 │   └── HealthChecks/
-    │       ├── NatsHealthCheck.cs
-    │       └── MongoHealthCheck.cs
-  ├── ChatHub.Core/
-  │   ├── Models/                        # ClientMessage, ServerMessage, MessageEnvelope DTOs
-  │   ├── Documents/                     # MessageDocument (unified attachment), ConversationDocument
+│       ├── NatsHealthCheck.cs
+│       └── MongoHealthCheck.cs
+├── ChatHub.Core/
+│   ├── Models/                        # ClientMessage, ServerMessage, MessageEnvelope DTOs
+│   ├── Documents/                     # MessageDocument (unified attachment), ConversationDocument
 │   ├── Interfaces/
 │   │   ├── IConnectionRegistry.cs
 │   │   ├── IWebSocketSender.cs
@@ -134,8 +175,8 @@ ChatHub.sln
 │   ├── Cache/
 │   │   ├── VoiceSessionBuffer.cs           # In-memory voice chunk storage
 │   │   ├── VoiceSessionCleanupService.cs   # BackgroundService
-    │   │   ├── MongoDbPresenceService.cs
-    │   │   └── MongoDbRateLimiter.cs
+│   │   ├── MongoDbPresenceService.cs
+│   │   └── MongoDbRateLimiter.cs
 │   └── Storage/
 │       └── S3BlobStorageClient.cs
 ├── ChatHub.Tests/
@@ -156,6 +197,72 @@ ChatHub.sln
     ├── secret.yaml
     └── nats-values.yaml
 ```
+
+### Web Test Client (chat-client-web/)
+
+```text
+chat-client-web/
+├── src/
+│   ├── App.jsx                    # Main app with 4-column layout
+│   ├── App.css                    # Styling
+│   ├── main.jsx
+│   ├── index.html
+│   ├── transport/
+│   │   ├── wsClient.js            # WebSocket client with reconnection
+│   │   ├── sendQueue.js
+│   │   └── heartbeat.js
+│   ├── protocol/
+│   │   ├── parsers.js             # Frame parsing and validation
+│   │   ├── builders.js            # Message builders
+│   │   └── messageTypes.js
+│   ├── api/
+│   │   ├── conversations.js       # REST API for conversations
+│   │   ├── history.js
+│   │   ├── presence.js
+│   │   ├── upload.js
+│   │   └── download.js
+│   ├── state/
+│   │   ├── conversationStore.js
+│   │   ├── messageStore.js
+│   │   ├── presenceStore.js
+│   │   └── voiceSessionStore.js
+│   └── ui/
+│       ├── AuthPanel.jsx
+│       ├── ConversationList.jsx
+│       ├── MessageList.jsx
+│       ├── Composer.jsx
+│       ├── VoiceRecorder.jsx
+│       ├── PresenceBar.jsx
+│       ├── TypingIndicator.jsx
+│       ├── ProtocolLog.jsx
+│       ├── MetricsDashboard.jsx
+│       └── TestScenarios.jsx
+└── package.json
+```
+
+### Web Client UI Layout
+
+The web client uses a 4-column responsive layout:
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ Header: Title + Status + Controls                                   │
+├──────────┬──────────────────────┬──────────┬─────────────────────┤
+│CONVERSATIONS│    MESSAGES      │ METRICS  │    LOGS & TRACE    │
+│            │                  │          │                     │
+│ [Browse]  │                  │  TEST    │                     │
+│            │                  │  SCENARIOS│                     │
+│────────────│                  │          │                     │
+│ PRESENCE  │                  │          │                     │
+└──────────┴──────────────────────┴──────────┴─────────────────────┘
+```
+
+- **Column 1** (180px): Conversations list + Presence
+- **Column 2** (30%): Messages area with composer
+- **Column 3** (140px): Metrics + Test scenarios
+- **Column 4** (flex): Logs & Trace
+
+**Connect Screen**: Separate full-page layout for JWT authentication before accessing the main chat interface.
 
 ## Complexity Tracking
 
